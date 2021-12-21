@@ -1,0 +1,20 @@
+
+[package]
+name = "clingofmt"
+version = "0.1.0"
+authors = ["Sven Thiele <sthiele78@gmail.com>"]
+description = "Tool to find and fix formatting issues in clingo files"
+readme = "README.md"
+repository = "https://github.com/sthiele/clingofmt"
+license = "MIT"
+edition = "2021"
+exclude = ["/.github"]
+
+[dependencies]
+structopt = "0.3"
+anyhow = "1.0"
+log = "0.4"
+stderrlog = "0.5"
+tree-sitter = "~0.20.0"
+tree-sitter-clingo = { git = "https://github.com/sthiele/tree-sitter-clingo", branch = "main" }
+

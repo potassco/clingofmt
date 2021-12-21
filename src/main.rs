@@ -1,19 +1,23 @@
 use anyhow::{Context, Result};
+use clap::Parser;
 use log::error;
 use std::fs;
 use std::{
     io::{self, Write},
     path::PathBuf,
 };
-use structopt::StructOpt;
 
 /// Format clingo code
-#[derive(StructOpt, Debug)]
-#[structopt(name = "clingofmt")]
+#[derive(Parser, Debug)]
+#[clap(version, author)]
 struct Opt {
     /// Input file in clingo format
-    #[structopt(name = "FILE", parse(from_os_str))]
+    #[clap(name = "FILE", parse(from_os_str))]
     file: PathBuf,
+
+    /// Enable debug output
+    #[clap(long)]
+    debug: bool,
 }
 
 pub enum Reader<'a> {
@@ -56,7 +60,7 @@ fn main() {
     }
 }
 fn run() -> Result<()> {
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
 
     let path = opt.file.to_str().unwrap();
     let source_code =
@@ -148,7 +152,7 @@ fn run() -> Result<()> {
                         if in_body_agg {
                             write!(&mut stdout, "    ")?;
                         }
-                        if in_condition {
+                        if in_body && in_condition {
                             write!(&mut stdout, "    ")?;
                         }
                         in_literal = true;
@@ -157,13 +161,14 @@ fn run() -> Result<()> {
                         if in_body && !in_literal {
                             write!(&mut stdout, "\n    ")?;
                         }
-                        // in_literal = true;
                         in_body_agg = true;
                     }
                     "COLON" => write!(&mut stdout, " ")?,
                     "RBRACE" => {
                         if in_body {
                             write!(&mut stdout, "\n    ")?;
+                        } else {
+                            write!(&mut stdout, " ")?;
                         }
                     }
                     _ => {}
@@ -174,52 +179,57 @@ fn run() -> Result<()> {
                     let end_byte = node.end_byte();
                     let text = std::str::from_utf8(&source_code[start_byte..end_byte]).unwrap();
 
-                    // eprint!("{} ", text);
                     write!(&mut stdout, "{}", text)?;
+                    if opt.debug {
+                        eprint!("{} ", text);
+                    }
                 }
 
-                // for _ in 0..indent_level {
-                //     eprint!("  ");
-                // }
-                // let start = node.start_position();
-                // let end = node.end_position();
-                // if let Some(field_name) = cursor.field_name() {
-                //     eprint!("{}: ", field_name);
-                // }
+                if opt.debug {
+                    for _ in 0..indent_level {
+                        eprint!("  ");
+                    }
+                    let start = node.start_position();
+                    let end = node.end_position();
+                    if let Some(field_name) = cursor.field_name() {
+                        eprint!("{}: ", field_name);
+                    }
 
-                // eprintln!(
-                // "({} [{}, {}] - [{}, {}]",
-                // node.kind(),
-                // start.row,
-                // start.column,
-                // end.row,
-                // end.column
-                // );
+                    eprintln!(
+                        "({} [{}, {}] - [{}, {}]",
+                        node.kind(),
+                        start.row,
+                        start.column,
+                        end.row,
+                        end.column
+                    );
+                }
             } else if node.child_count() == 0 {
                 let start_byte = node.start_byte();
                 let end_byte = node.end_byte();
                 let text = std::str::from_utf8(&source_code[start_byte..end_byte]).unwrap();
 
-                // eprint!("{}", text);
                 write!(&mut stdout, "{}", text)?;
 
-                // for _ in 0..indent_level {
-                //     eprint!("  ");
-                // }
-
-                // let start = node.start_position();
-                // let end = node.end_position();
-                // if let Some(field_name) = cursor.field_name() {
-                //     eprint!("{}: ", field_name);
-                // }
-                // eprintln!(
-                //     "({} [{}, {}] - [{}, {}]",
-                //     node.kind(),
-                //     start.row,
-                //     start.column,
-                //     end.row,
-                //     end.column
-                // );
+                if opt.debug {
+                    eprint!("{}", text);
+                    for _ in 0..indent_level {
+                        eprint!("  ");
+                    }
+                    let start = node.start_position();
+                    let end = node.end_position();
+                    if let Some(field_name) = cursor.field_name() {
+                        eprint!("{}: ", field_name);
+                    }
+                    eprintln!(
+                        "({} [{}, {}] - [{}, {}]",
+                        node.kind(),
+                        start.row,
+                        start.column,
+                        end.row,
+                        end.column
+                    );
+                }
             }
 
             if cursor.goto_first_child() {

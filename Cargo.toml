@@ -11,7 +11,7 @@ edition = "2021"
 exclude = ["/.github"]
 
 [dependencies]
-structopt = "0.3"
+clap = { version = "3.0.0-rc.7", features = ["derive"] }
 anyhow = "1.0"
 log = "0.4"
 stderrlog = "0.5"

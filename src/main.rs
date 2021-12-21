@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use log::error;
+use log::{error, debug};
 use std::fs;
 use std::{
     io::{self, Write},
@@ -24,7 +24,6 @@ pub enum Reader<'a> {
     File(io::BufReader<fs::File>),
     Stdin(io::StdinLock<'a>),
 }
-
 impl<'a> io::Read for Reader<'a> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
@@ -33,7 +32,6 @@ impl<'a> io::Read for Reader<'a> {
         }
     }
 }
-
 impl<'a> io::BufRead for Reader<'a> {
     fn fill_buf(&mut self) -> io::Result<&[u8]> {
         match self {
@@ -48,10 +46,11 @@ impl<'a> io::BufRead for Reader<'a> {
         }
     }
 }
+
 fn main() {
     stderrlog::new()
         .module(module_path!())
-        .verbosity(2)
+        .verbosity(3)
         .init()
         .unwrap();
     if let Err(err) = run() {
@@ -59,6 +58,7 @@ fn main() {
         std::process::exit(1);
     }
 }
+
 fn run() -> Result<()> {
     let opt = Opt::parse();
 
@@ -181,22 +181,21 @@ fn run() -> Result<()> {
 
                     write!(&mut stdout, "{}", text)?;
                     if opt.debug {
-                        eprint!("{} ", text);
+                        debug!("{} ", text);
                     }
                 }
 
                 if opt.debug {
-                    for _ in 0..indent_level {
-                        eprint!("  ");
-                    }
+                    let indent = "  ".repeat(indent_level);
                     let start = node.start_position();
                     let end = node.end_position();
                     if let Some(field_name) = cursor.field_name() {
                         eprint!("{}: ", field_name);
                     }
 
-                    eprintln!(
-                        "({} [{}, {}] - [{}, {}]",
+                    debug!(
+                        "{}({} [{}, {}] - [{}, {}]",
+                        indent,
                         node.kind(),
                         start.row,
                         start.column,
@@ -212,17 +211,16 @@ fn run() -> Result<()> {
                 write!(&mut stdout, "{}", text)?;
 
                 if opt.debug {
-                    eprint!("{}", text);
-                    for _ in 0..indent_level {
-                        eprint!("  ");
-                    }
+                    debug!("{}", text);
+                    let indent = "  ".repeat(indent_level);
                     let start = node.start_position();
                     let end = node.end_position();
                     if let Some(field_name) = cursor.field_name() {
-                        eprint!("{}: ", field_name);
+                        debug!("{}: ", field_name);
                     }
-                    eprintln!(
-                        "({} [{}, {}] - [{}, {}]",
+                    debug!(
+                        "{}({} [{}, {}] - [{}, {}]",
+                        indent,
                         node.kind(),
                         start.row,
                         start.column,
@@ -241,7 +239,6 @@ fn run() -> Result<()> {
         }
     }
     cursor.reset(tree.root_node());
-    println!();
 
     let mut first_error = None;
     loop {
@@ -259,34 +256,29 @@ fn run() -> Result<()> {
     }
 
     if first_error.is_some() {
-        write!(&mut stdout, "{}", path)?;
+        error!("{}", path);
         if let Some(node) = first_error {
             let start = node.start_position();
             let end = node.end_position();
-            write!(&mut stdout, "\t(")?;
+            error!("\t(");
             if node.is_missing() {
                 if node.is_named() {
-                    write!(&mut stdout, "MISSING {}", node.kind())?;
+                    error!("MISSING {}", node.kind());
                 } else {
-                    write!(
-                        &mut stdout,
+                    error!(
                         "MISSING \"{}\"",
                         node.kind().replace("\n", "\\n")
-                    )?;
+                    );
                 }
             } else {
-                write!(&mut stdout, "{}", node.kind())?;
+                error!("{}", node.kind());
             }
-            write!(
-                &mut stdout,
-                " [{}, {}] - [{}, {}])",
+            error!(
+                "[{}, {}] - [{}, {}])",
                 start.row, start.column, end.row, end.column
-            )?;
+            );
         }
-        writeln!(&mut stdout)?;
     }
-
-    // return Ok(first_error.is_some());
 
     Ok(())
 }

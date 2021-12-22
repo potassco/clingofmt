@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use log::{error, debug};
+use log::{debug, error};
 use std::fs;
 use std::{
     io::{self, Write},
@@ -116,7 +116,7 @@ fn run() -> Result<()> {
                             needs_newline = true;
                         }
                     }
-                    "SHOW" => needs_space = true,
+                    "SHOW" | "cmp" => needs_space = true,
                     _ => {}
                 }
                 if needs_newline {
@@ -163,7 +163,7 @@ fn run() -> Result<()> {
                         }
                         in_body_agg = true;
                     }
-                    "COLON" => write!(&mut stdout, " ")?,
+                    "COLON" | "cmp" => write!(&mut stdout, " ")?,
                     "RBRACE" => {
                         if in_body {
                             write!(&mut stdout, "\n    ")?;
@@ -265,10 +265,7 @@ fn run() -> Result<()> {
                 if node.is_named() {
                     error!("MISSING {}", node.kind());
                 } else {
-                    error!(
-                        "MISSING \"{}\"",
-                        node.kind().replace("\n", "\\n")
-                    );
+                    error!("MISSING \"{}\"", node.kind().replace("\n", "\\n"));
                 }
             } else {
                 error!("{}", node.kind());

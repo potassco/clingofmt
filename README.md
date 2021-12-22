@@ -30,15 +30,15 @@ into
 % Check lower and upper bounds via "Sinz counter" on selected varying atoms
 index(A,I) :- 
     vary(A),
-    I=#count { B : 
+    I = #count { B : 
             vary(B),
-            B<=A
+            B <= A
     },
     not bounds(0,0).
 
 counter(I,1) :- 
     index(A,I),
     bounds(L,U),
-    L<=I,
+    L <= I,
     selected(A).
 ```

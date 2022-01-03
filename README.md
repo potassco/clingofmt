@@ -2,8 +2,6 @@
 
 A tool that automatically formats your clingo code.
 
-**ATTENTION**: This is work in progress `clingofmt` will eat your code!
-
 ## Compile
 
 ```sh

@@ -1,0 +1,49 @@
+name: Github Release
+
+on:
+  release:
+    types:
+      - created
+    branches: [master]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macOS-latest]
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build
+        run: cargo build --release
+
+      - name: archive linux
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          PACKAGE: "clingofmt-linux-x86_64.tar.gz"
+        run: tar -czf $PACKAGE -C target/release/ clingofmt
+
+      - name: archive macOS
+        if: matrix.os == 'macOS-latest'
+        env:
+          PACKAGE: "clingofmt-macos-x86_64.tar.gz"
+        run: tar -czf $PACKAGE -C target/release/ clingofmt
+
+      - name: GH Release linux
+        if: matrix.os == 'ubuntu-latest'
+        uses: softprops/action-gh-release@v0.1.5
+        with:
+          # Newline-delimited list of path globs for asset files to upload
+          files: clingofmt-linux-x86_64.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: GH Release macOS
+        if: matrix.os == 'macOS-latest'
+        uses: softprops/action-gh-release@v0.1.5
+        with:
+          # Newline-delimited list of path globs for asset files to upload
+          files: clingofmt-macos-x86_64.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

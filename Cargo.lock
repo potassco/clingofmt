@@ -67,9 +67,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "3.0.0"
+version = "3.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d17bf219fcd37199b9a29e00ba65dfb8cd5b2688b7297ec14ff829c40ac50ca9"
+checksum = "b1121e32687f7f90b905d4775273305baa4f32cd418923e9b0fa726533221857"
 dependencies = [
  "atty",
  "bitflags",
@@ -332,8 +332,9 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-clingo"
-version = "0.0.1"
-source = "git+https://github.com/sthiele/tree-sitter-clingo?branch=main#a05977674864a4ee94b5b9ee01aea6e15a48c41f"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32dfbfe607405d97bf5f7ca4e4bee3a33f62db6488f687f5ce41c3738e535c70"
 dependencies = [
  "cc",
  "tree-sitter",

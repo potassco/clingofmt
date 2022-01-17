@@ -84,6 +84,11 @@ fn run() -> Result<()> {
     let mut in_literal = false;
     let mut indent_level = 0;
     let mut did_visit_children = false;
+    // rule properties
+    let mut has_head = false;
+    // after position markers
+    let mut after_if = false;
+
     loop {
         let node = cursor.node();
         let is_named = node.is_named();
@@ -93,9 +98,16 @@ fn run() -> Result<()> {
                 match node.kind() {
                     "statement" | "comment" => {
                         writeln!(&mut stdout)?;
+                        //reset rule properties
+                        has_head = false;
                     }
-                    "head" | "NOT" | "aggregatefunction" => needs_space = true,
+                    "head" => {
+                        has_head = true;
+                        needs_space = true;
+                    }
+                    "NOT" | "aggregatefunction" => needs_space = true,
                     "IF" => {
+                        after_if = true;
                         needs_space = true;
                     }
                     "literal" => {
@@ -146,7 +158,7 @@ fn run() -> Result<()> {
                         in_condition = true;
                     }
                     "literal" => {
-                        if in_body && !in_literal {
+                        if in_body && !in_literal && (!after_if || has_head) {
                             write!(&mut stdout, "\n    ")?;
                         }
                         if in_body_agg {
@@ -158,14 +170,19 @@ fn run() -> Result<()> {
                         in_literal = true;
                     }
                     "lubodyaggregate" => {
-                        if in_body && !in_literal {
+                        if in_body && !in_literal && (!after_if || has_head) {
                             write!(&mut stdout, "\n    ")?;
                         }
                         in_body_agg = true;
                     }
+                    "IF" => {
+                        if !has_head {
+                            write!(&mut stdout, " ")?;
+                        }
+                    }
                     "COLON" | "cmp" => write!(&mut stdout, " ")?,
                     "RBRACE" => {
-                        if in_body {
+                        if in_body && (!after_if || has_head) {
                             write!(&mut stdout, "\n    ")?;
                         } else {
                             write!(&mut stdout, " ")?;
@@ -183,6 +200,8 @@ fn run() -> Result<()> {
                     if opt.debug {
                         debug!("{} ", text);
                     }
+                    // reset after position markers
+                    after_if = false
                 }
 
                 if opt.debug {

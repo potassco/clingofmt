@@ -96,7 +96,10 @@ fn run() -> Result<()> {
             // what happens after the element
             if is_named {
                 match node.kind() {
-                    "statement" | "comment" => {
+                    "comment" => {
+                        writeln!(&mut stdout)?;
+                    }
+                    "statement" => {
                         writeln!(&mut stdout)?;
                         //reset rule properties
                         has_head = false;
@@ -113,6 +116,7 @@ fn run() -> Result<()> {
                     }
                     "bodydot" => {
                         in_body = false;
+                        needs_newline = true;
                     }
                     "lubodyaggregate" => {
                         in_body_agg = false;
@@ -121,11 +125,6 @@ fn run() -> Result<()> {
                         in_condition = false;
                     }
                     "COLON" | "LBRACE" => needs_space = true,
-                    "DOT" => {
-                        if in_body {
-                            needs_newline = true;
-                        }
-                    }
                     "SHOW" | "cmp" => needs_space = true,
                     _ => {}
                 }

@@ -107,7 +107,6 @@ fn run() -> Result<()> {
                     "NOT" | "aggregatefunction" => needs_space = true,
                     "IF" => {
                         after_if = true;
-                        needs_space = true;
                     }
                     "literal" => {
                         in_literal = false;
@@ -157,20 +156,28 @@ fn run() -> Result<()> {
                         in_condition = true;
                     }
                     "literal" => {
-                        if in_body && !in_literal && (!after_if || has_head) {
-                            write!(&mut stdout, "\n    ")?;
-                        }
-                        if in_body_agg {
-                            write!(&mut stdout, "    ")?;
-                        }
-                        if in_body && in_condition {
-                            write!(&mut stdout, "    ")?;
+                        if after_if && !has_head {
+                            write!(&mut stdout, " ")?;
+                        } else {
+                            if in_body && !in_literal {
+                                write!(&mut stdout, "\n    ")?;
+                            }
+                            if in_body_agg {
+                                write!(&mut stdout, "    ")?;
+                            }
+                            if in_body && in_condition {
+                                write!(&mut stdout, "    ")?;
+                            }
                         }
                         in_literal = true;
                     }
                     "lubodyaggregate" => {
-                        if in_body && !in_literal && (!after_if || has_head) {
-                            write!(&mut stdout, "\n    ")?;
+                        if after_if && !has_head {
+                            write!(&mut stdout, " ")?;
+                        } else {
+                            if in_body && !in_literal {
+                                write!(&mut stdout, "\n    ")?;
+                            }
                         }
                         in_body_agg = true;
                     }
@@ -179,10 +186,12 @@ fn run() -> Result<()> {
                     }
                     "COLON" | "cmp" => write!(&mut stdout, " ")?,
                     "RBRACE" => {
-                        if in_body && (!after_if || has_head) {
-                            write!(&mut stdout, "\n    ")?;
-                        } else {
+                        if after_if && !has_head {
                             write!(&mut stdout, " ")?;
+                        } else {
+                            if in_body {
+                                write!(&mut stdout, "\n    ")?;
+                            }
                         }
                     }
                     _ => {}

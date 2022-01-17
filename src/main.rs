@@ -103,7 +103,6 @@ fn run() -> Result<()> {
                     }
                     "head" => {
                         has_head = true;
-                        needs_space = true;
                     }
                     "NOT" | "aggregatefunction" => needs_space = true,
                     "IF" => {
@@ -176,9 +175,7 @@ fn run() -> Result<()> {
                         in_body_agg = true;
                     }
                     "IF" => {
-                        if !has_head {
-                            write!(&mut stdout, " ")?;
-                        }
+                        write!(&mut stdout, " ")?;
                     }
                     "COLON" | "cmp" => write!(&mut stdout, " ")?,
                     "RBRACE" => {

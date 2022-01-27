@@ -26,15 +26,16 @@ into
 
 ```prolog
 % Check lower and upper bounds via "Sinz counter" on selected varying atoms
-index(A,I) :- 
+index(A,I) :-
     vary(A),
-    I = #count { B : 
+    I = #count {
+        B : 
             vary(B),
             B <= A
     },
     not bounds(0,0).
 
-counter(I,1) :- 
+counter(I,1) :-
     index(A,I),
     bounds(L,U),
     L <= I,

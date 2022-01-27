@@ -14,7 +14,7 @@ cargo build --release
 .target/release/clingofmt example.lp > formated_example.lp
 ```
 
-This will turn:
+This will turn
 
 ```prolog
 % Check lower and upper bounds via "Sinz counter" on selected varying atoms
@@ -26,18 +26,19 @@ into
 
 ```prolog
 % Check lower and upper bounds via "Sinz counter" on selected varying atoms
-index(A,I) :-
+index(A, I) :-
     vary(A),
     I = #count {
-        B : 
+        B :
             vary(B),
             B <= A
     },
-    not bounds(0,0).
+    not bounds(0, 0).
 
-counter(I,1) :-
-    index(A,I),
-    bounds(L,U),
+counter(I, 1) :-
+    index(A, I),
+    bounds(L, U),
     L <= I,
     selected(A).
+
 ```

@@ -7,6 +7,8 @@ use std::{
     path::PathBuf,
 };
 
+const MAX_LENGTH: usize = 40;
+
 /// Format clingo code
 #[derive(Parser, Debug)]
 #[clap(version, author)]
@@ -59,6 +61,40 @@ fn main() {
     }
 }
 
+fn flush(buf: &mut String, ident_level: usize) -> Result<()> {
+    let mut stdout = std::io::stdout();
+    writeln!(&mut stdout, "{buf}")?;
+    buf.clear();
+    for _i in 0..ident_level {
+        buf.push_str("    ");
+    }
+    Ok(())
+}
+fn plush(buf: &mut String) -> Result<()> {
+    let mut stdout = std::io::stdout();
+    write!(&mut stdout, "{buf}")?;
+    buf.clear();
+    Ok(())
+}
+fn hush(buf: &mut String, ident_level: usize) -> Result<()> {
+    let mut stdout = std::io::stdout();
+    for _i in 0..ident_level {
+        write!(&mut stdout, "    ")?;
+    }
+    writeln!(&mut stdout, "{buf}")?;
+    buf.clear();
+    Ok(())
+}
+fn lush(buf: &mut String, ident_level: usize) -> Result<()> {
+    let mut stdout = std::io::stdout();
+    for _i in 0..ident_level {
+        write!(&mut stdout, "    ")?;
+    }
+    write!(&mut stdout, "{buf}")?;
+    buf.clear();
+    Ok(())
+}
+
 fn run() -> Result<()> {
     let opt = Opt::parse();
 
@@ -76,18 +112,18 @@ fn run() -> Result<()> {
     let tree = parser.parse(&source_code, None).unwrap();
     let mut cursor = tree.walk();
 
-    let mut needs_space = false;
-    let mut needs_newline = false;
-    let mut in_body = false;
-    let mut in_body_agg = false;
-    let mut in_condition = false;
-    let mut in_literal = false;
+    let mut first = true;
+    let mut buf = String::new();
     let mut indent_level = 0;
+    let mut mindent_level = 0;
     let mut did_visit_children = false;
-    // rule properties
+
+    let mut in_statement = false;
+    let mut in_conjunction = false;
+    let mut in_noptcondition = false;
+    let mut in_ntermvec = 0;
     let mut has_head = false;
-    // after position markers
-    let mut after_if = false;
+    let mut has_body = false;
 
     loop {
         let node = cursor.node();
@@ -97,44 +133,88 @@ fn run() -> Result<()> {
             if is_named {
                 match node.kind() {
                     "comment" => {
-                        writeln!(&mut stdout)?;
+                        if in_statement {
+                            hush(&mut buf, mindent_level)?;
+                        } else {
+                            flush(&mut buf, mindent_level)?;
+                        }
+                        first = true;
                     }
                     "statement" => {
-                        writeln!(&mut stdout)?;
-                        //reset rule properties
+                        if !has_head || has_body {
+                            writeln!(&mut stdout, "{buf}")?;
+                        } else {
+                            // no newline after facts.
+                            write!(&mut stdout, "{buf}")?;
+                        }
+                        buf.clear();
+
+                        //reset properties
+                        in_statement = false;
                         has_head = false;
+                        has_body = false;
                     }
                     "head" => {
                         has_head = true;
                     }
-                    "NOT" | "aggregatefunction" => needs_space = true,
-                    "IF" => {
-                        after_if = true;
+                    "ntermvec" => {
+                        in_ntermvec -= 1;
                     }
-                    "literal" => {
-                        in_literal = false;
+                    "NOT" | "aggregatefunction" => buf.push(' '),
+                    "IF" => {
+                        mindent_level += 1; // decrease after bodydot
+                        if !has_head {
+                            buf.push(' ');
+                        } else {
+                            flush(&mut buf, mindent_level)?;
+                        }
                     }
                     "bodydot" => {
-                        in_body = false;
-                        needs_newline = true;
+                        mindent_level -= 1;
                     }
-                    "lubodyaggregate" => {
-                        in_body_agg = false;
+                    "lubodyaggregate" => {}
+                    "bodyaggrelem" => {
+                        // mindent_level -= 1;
                     }
                     "noptcondition" => {
-                        in_condition = false;
+                        in_noptcondition = false;
+                        mindent_level -= 1;
                     }
-                    "COLON" | "LBRACE" => needs_space = true,
-                    "SHOW" | "cmp" => needs_space = true,
+                    "conjunction" => {
+                        in_conjunction = false;
+                        mindent_level -= 1;
+                    }
+                    "COMMA" => {
+                        if in_ntermvec == 0 {
+                            flush(&mut buf, mindent_level)?;
+                        } else if buf.len() >= MAX_LENGTH {
+                            flush(&mut buf, mindent_level)?;
+                        } else {
+                            buf.push(' ');
+                        }
+                    }
+                    "SEM" => {
+                        flush(&mut buf, mindent_level)?;
+                    }
+                    "COLON" => {
+                        if in_conjunction {
+                            mindent_level += 1;
+                        }
+                        if in_noptcondition {
+                            mindent_level += 1;
+                        }
+                        flush(&mut buf, mindent_level)?;
+                    }
+                    "LBRACE" => {
+                        mindent_level += 1;
+                        flush(&mut buf, mindent_level)?;
+                    }
+                    "LPAREN" => {
+                        mindent_level += 1;
+                    }
+                    "SHOW" | "cmp" => buf.push(' '),
                     _ => {}
                 }
-                if needs_newline {
-                    writeln!(&mut stdout)?;
-                } else if needs_space {
-                    write!(&mut stdout, " ")?;
-                }
-                needs_newline = false;
-                needs_space = false;
             }
             if cursor.goto_next_sibling() {
                 did_visit_children = false;
@@ -148,50 +228,51 @@ fn run() -> Result<()> {
             // what happens before the element
             if is_named {
                 match node.kind() {
+                    "comment" => {
+                        if in_statement {
+                            plush(&mut buf)?;
+                        } else {
+                            if !first {
+                                writeln!(&mut stdout)?;
+                            } else {
+                                first = false
+                            }
+                            lush(&mut buf, mindent_level)?;
+                        }
+                    }
+                    "statement" => {
+                        if !first {
+                            writeln!(&mut stdout)?;
+                        } else {
+                            first = false
+                        }
+                        in_statement = true;
+                    }
                     "bodydot" => {
-                        in_body = true;
+                        has_body = true;
                     }
                     "noptcondition" => {
-                        in_condition = true;
+                        in_noptcondition = true;
+                        //incease mindent_level after COLON
                     }
-                    "literal" => {
-                        if after_if && !has_head {
-                            write!(&mut stdout, " ")?;
-                        } else {
-                            if in_body && !in_literal {
-                                write!(&mut stdout, "\n    ")?;
-                            }
-                            if in_body_agg {
-                                write!(&mut stdout, "    ")?;
-                            }
-                            if in_body && in_condition {
-                                write!(&mut stdout, "    ")?;
-                            }
-                        }
-                        in_literal = true;
+                    "conjunction" => {
+                        in_conjunction = true;
+                        //incease mindent_level after COLON
                     }
-                    "lubodyaggregate" => {
-                        if after_if && !has_head {
-                            write!(&mut stdout, " ")?;
-                        } else {
-                            if in_body && !in_literal {
-                                write!(&mut stdout, "\n    ")?;
-                            }
-                        }
-                        in_body_agg = true;
+                    "ntermvec" => {
+                        in_ntermvec += 1;
                     }
+                    "lubodyaggregate" => {}
                     "IF" => {
-                        write!(&mut stdout, " ")?;
+                        buf.push(' ');
                     }
-                    "COLON" | "cmp" => write!(&mut stdout, " ")?,
+                    "COLON" | "cmp" => buf.push(' '),
                     "RBRACE" => {
-                        if after_if && !has_head {
-                            write!(&mut stdout, " ")?;
-                        } else {
-                            if in_body {
-                                write!(&mut stdout, "\n    ")?;
-                            }
-                        }
+                        mindent_level -= 1;
+                        flush(&mut buf, mindent_level)?;
+                    }
+                    "RPAREN" => {
+                        mindent_level -= 1;
                     }
                     _ => {}
                 }
@@ -201,12 +282,10 @@ fn run() -> Result<()> {
                     let end_byte = node.end_byte();
                     let text = std::str::from_utf8(&source_code[start_byte..end_byte]).unwrap();
 
-                    write!(&mut stdout, "{}", text)?;
+                    buf.push_str(text);
                     if opt.debug {
                         debug!("{} ", text);
                     }
-                    // reset after position markers
-                    after_if = false
                 }
 
                 if opt.debug {
@@ -232,7 +311,7 @@ fn run() -> Result<()> {
                 let end_byte = node.end_byte();
                 let text = std::str::from_utf8(&source_code[start_byte..end_byte]).unwrap();
 
-                write!(&mut stdout, "{}", text)?;
+                buf.push_str(text);
 
                 if opt.debug {
                     debug!("{}", text);

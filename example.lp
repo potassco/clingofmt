@@ -39,7 +39,33 @@ sel_vat(H, V) :- sel_vat(N,W) : cons(Identifier,var(N,W));
    : cons(Identifier, has_con("strong", F, T, Na, Index));
    %c2
    %c3
-   not has_con(F, _, Na, Index) : cons(Identifier, has_con("weak", F, Na, Index));
-  %* c2
+   not has_con(F, _, Na, Index) : cons(Identifier, has_con("weak", F, Na, Index));  %* c2
     sss *%
    cons(Identifier,tail(H,V)).
+
+    bla%aa 
+    %bb  
+    :-%aa 
+    %bb
+     varies(X),
+    #sum %aa 
+    %bb
+    { %aa 
+    %bb
+        2**(X-Z)%aa 
+    %bb 
+    :%aa 
+    %bb
+            Z = L+1..X,%aa 
+    %bb
+            not counter(1, Z); %aa 
+    %bb
+        1, M :
+            excluded(M)
+    } %aa 
+    %bb
+     >= %aa 
+    %bb
+     Y %aa 
+    %bb
+    ,models(Y).

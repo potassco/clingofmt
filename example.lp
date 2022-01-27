@@ -27,3 +27,19 @@ excluded(M):-exclude(M,A).
 % Display literals of prime implicant
 #show select/2.
               n(s).bb(x).
+output(@fmt(("The @fmt() function is flexible enough to take multi-line ",
+             "strings containing many placeholders: {} and ",
+             "{} and {} outputs"), (X,Y,Z))) :- num(X),string(Y),constant(Z).
+sel_vat(H, V) :- sel_vat(N,W) : cons(Identifier,var(N,W));
+   subgraph(N) : cons(Identifier, has_x("strong",N))%*jjj*%;
+   %c1
+   has_con(F, T, Na, Index) 
+   %c0
+   %c01
+   : cons(Identifier, has_con("strong", F, T, Na, Index));
+   %c2
+   %c3
+   not has_con(F, _, Na, Index) : cons(Identifier, has_con("weak", F, Na, Index));
+  %* c2
+    sss *%
+   cons(Identifier,tail(H,V)).

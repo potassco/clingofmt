@@ -16,5 +16,4 @@ anyhow = "1.0"
 log = "0.4"
 stderrlog = "0.5"
 tree-sitter = "~0.20.0"
-tree-sitter-clingo = "0.0.2"
-
+tree-sitter-clingo = "0.0.4"

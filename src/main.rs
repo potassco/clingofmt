@@ -121,6 +121,7 @@ fn pass_one(
     let mut in_ntermvec = 0;
     let mut has_head = false;
     let mut has_body = false;
+    let mut is_error = false;
 
     loop {
         let node = cursor.node();
@@ -129,6 +130,10 @@ fn pass_one(
             // what happens after the element
             if is_named {
                 match node.kind() {
+                    "ERROR" => {
+                        is_error = false;
+                        flush(out, &mut buf)?;
+                    }
                     "statement" => {
                         if !has_head || has_body {
                             writeln!(out, "{buf}")?;
@@ -164,7 +169,7 @@ fn pass_one(
                     "LPAREN" => {
                         mindent_level += 1;
                     }
-                    "SHOW" | "cmp" => buf.push(' '),
+                    "SHOW" | "BLOCK" | "cmp" => buf.push(' '),
                     _ => {}
                 }
                 if node.child_count() == 0 {
@@ -232,6 +237,10 @@ fn pass_one(
             // what happens before the element
             if is_named {
                 match node.kind() {
+                    "ERROR" => {
+                        is_error = true;
+                        flushln_indent(out, &mut buf, mindent_level)?;
+                    }
                     "comment" => {
                         if in_statement {
                             flush(out, &mut buf)?;
@@ -277,7 +286,7 @@ fn pass_one(
                     _ => {}
                 }
 
-                if node.child_count() == 0 {
+                if node.child_count() == 0 || is_error {
                     let start_byte = node.start_byte();
                     let end_byte = node.end_byte();
                     let text = std::str::from_utf8(&source_code[start_byte..end_byte]).unwrap();
@@ -288,7 +297,25 @@ fn pass_one(
                     }
                 }
 
-                if debug {
+                if is_error {
+                    let indent = "  ".repeat(indent_level);
+                    let start = node.start_position();
+                    let end = node.end_position();
+                    if let Some(field_name) = cursor.field_name() {
+                        eprint!("{}: ", field_name);
+                    }
+
+                    error!(
+                        "{}({} [{}, {}] - [{}, {}]",
+                        indent,
+                        node.kind(),
+                        start.row,
+                        start.column,
+                        end.row,
+                        end.column
+                    );
+                }
+                if debug && !is_error {
                     let indent = "  ".repeat(indent_level);
                     let start = node.start_position();
                     let end = node.end_position();
@@ -332,8 +359,9 @@ fn pass_one(
                     );
                 }
             }
-
-            if cursor.goto_first_child() {
+            if is_error {
+                did_visit_children = true;
+            } else if cursor.goto_first_child() {
                 did_visit_children = false;
                 indent_level += 1;
             } else {

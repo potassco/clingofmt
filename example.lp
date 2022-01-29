@@ -69,3 +69,22 @@ sel_vat(H, V) :- sel_vat(N,W) : cons(Identifier,var(N,W));
      Y %aa 
     %bb
     ,models(Y).
+
+:- bla(1,2).
+#external a.
+#const c= "Dd".
+#minimize{fff}.
+#minimize {X:ccc(X)}.
+#include "fail1.lp".
+#heuristic heu.[ha,ak]
+#defined bla/2.
+#project p("s",X).
+
+#theory test {
+    &q/1 : t, body;
+    &r/0 : t, { < }, t, directive
+}.
+#edge(a,b).#edge(c,d).
+
+% #showsig s/2.
+% #showsig s(2,X).

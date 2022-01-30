@@ -118,8 +118,9 @@ fn pass_one(
     let mut in_statement = false;
     let mut in_conjunction = false;
     let mut in_noptcondition = false;
-    let mut in_ntermvec = 0;
-    let mut has_head = false;
+    let mut in_termvec = 0;
+    let mut in_theory_atom_definition = false;
+    let mut has_headlike = false;
     let mut has_body = false;
     let mut is_error = false;
 
@@ -135,7 +136,7 @@ fn pass_one(
                         flush(out, &mut buf)?;
                     }
                     "statement" => {
-                        if !has_head || has_body {
+                        if !has_headlike || has_body {
                             writeln!(out, "{buf}")?;
                         } else {
                             // no newline after facts.
@@ -145,20 +146,28 @@ fn pass_one(
 
                         //reset properties
                         in_statement = false;
-                        has_head = false;
+                        has_headlike = false;
                         has_body = false;
                     }
-                    "head" => {
-                        has_head = true;
+                    "head" | "EDGE" => {
+                        has_headlike = true;
                     }
-                    "ntermvec" => {
-                        in_ntermvec -= 1;
+                    "ntermvec" | "binaryargvec" => {
+                        in_termvec -= 1;
                     }
-                    "NOT" | "aggregatefunction" => buf.push(' '),
+                    "theory_atom_definition" => {
+                        in_termvec -= 1;
+                        in_theory_atom_definition = false;
+                    }
+                    "RBRACK" => {
+                        mindent_level -= 1;
+                        in_termvec -= 1;
+                    }
+                    "NOT" | "aggregatefunction" | "theory_identifier" => buf.push(' '),
                     "bodydot" => {
                         mindent_level -= 1;
                     }
-                    "noptcondition" => {
+                    "noptcondition" | "noptimizecond" => {
                         in_noptcondition = false;
                         mindent_level -= 1;
                     }
@@ -169,7 +178,9 @@ fn pass_one(
                     "LPAREN" => {
                         mindent_level += 1;
                     }
-                    "SHOW" | "BLOCK" | "cmp" => buf.push(' '),
+                    "EXTERNAL" | "DEFINED" | "CONST" | "SHOW" | "BLOCK" | "EQ" | "cmp"
+                    | "INCLUDE" | "PROJECT" | "HEURISTIC" | "SHOWSIG" | "THEORY" | "VBAR"
+                    | "MAXIMIZE" | "MINIMIZE" => buf.push(' '),
                     _ => {}
                 }
                 if node.child_count() == 0 {
@@ -188,22 +199,30 @@ fn pass_one(
                             nl = false;
                         }
                         "COLON" => {
-                            if in_conjunction {
-                                mindent_level += 1;
+                            if in_theory_atom_definition {
+                                buf.push(' ');
+                            } else {
+                                if in_conjunction {
+                                    mindent_level += 1;
+                                }
+                                if in_noptcondition {
+                                    mindent_level += 1;
+                                }
+                                flushln_indent(out, &mut buf, mindent_level)?;
+                                nl = false;
                             }
-                            if in_noptcondition {
-                                mindent_level += 1;
-                            }
-                            flushln_indent(out, &mut buf, mindent_level)?;
-                            nl = false;
                         }
                         "LBRACE" => {
-                            mindent_level += 1;
-                            flushln_indent(out, &mut buf, mindent_level)?;
-                            nl = false;
+                            if in_theory_atom_definition {
+                                buf.push(' ');
+                            } else {
+                                mindent_level += 1;
+                                flushln_indent(out, &mut buf, mindent_level)?;
+                                nl = false;
+                            }
                         }
                         "COMMA" => {
-                            if in_ntermvec == 0 || buf.len() >= MAX_LENGTH {
+                            if in_termvec == 0 || buf.len() >= MAX_LENGTH {
                                 flushln_indent(out, &mut buf, mindent_level)?;
                                 nl = false;
                             } else {
@@ -212,7 +231,7 @@ fn pass_one(
                         }
                         "IF" => {
                             mindent_level += 1; // decrease after bodydot
-                            if !has_head {
+                            if !has_headlike {
                                 buf.push(' ');
                             } else {
                                 flushln_indent(out, &mut buf, mindent_level)?;
@@ -261,7 +280,7 @@ fn pass_one(
                     "bodydot" => {
                         has_body = true;
                     }
-                    "noptcondition" => {
+                    "noptcondition" | "noptimizecond" => {
                         in_noptcondition = true;
                         //incease mindent_level after COLON
                     }
@@ -269,16 +288,29 @@ fn pass_one(
                         in_conjunction = true;
                         //incease mindent_level after COLON
                     }
-                    "ntermvec" => {
-                        in_ntermvec += 1;
+                    "ntermvec" | "binaryargvec" => {
+                        in_termvec += 1;
+                    }
+                    "theory_atom_definition" => {
+                        in_termvec += 1;
+                        in_theory_atom_definition = true;
+                    }
+                    "LBRACK" => {
+                        buf.push(' ');
+                        in_termvec += 1;
+                        mindent_level += 1;
                     }
                     "IF" => {
                         buf.push(' ');
                     }
-                    "COLON" | "cmp" => buf.push(' '),
+                    "COLON" | "EQ" | "cmp" => buf.push(' '),
                     "RBRACE" => {
-                        mindent_level -= 1;
-                        flushln_indent(out, &mut buf, mindent_level)?;
+                        if in_theory_atom_definition {
+                            buf.push(' ');
+                        } else {
+                            mindent_level -= 1;
+                            flushln_indent(out, &mut buf, mindent_level)?;
+                        }
                     }
                     "RPAREN" => {
                         mindent_level -= 1;

@@ -146,9 +146,9 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "libc"
-version = "0.2.115"
+version = "0.2.116"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a8d982fa7a96a000f6ec4cfe966de9703eccde29750df2bb8949da91b0e818d"
+checksum = "565dbd88872dbe4cc8a46e527f26483c1d1f7afa6b884a3bd6cd893d4f98da74"
 
 [[package]]
 name = "log"
@@ -329,9 +329,9 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-clingo"
-version = "0.0.5"
+version = "0.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22bb6dd547fc9fbb1a57d21639f920d17d6613237571bd0a58e98e2ea0d95f55"
+checksum = "8a613bd604f916b79281d846571798ca2f8ce1b764aaf51a61e4ad044ee43345"
 dependencies = [
  "cc",
  "tree-sitter",

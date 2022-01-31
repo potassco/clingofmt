@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use log::{debug, error};
+use log::{debug, error, warn};
 use std::fs;
 use std::{
     io::{self, Write},
@@ -330,29 +330,31 @@ fn pass_one(
                 }
 
                 if is_error {
-                    let indent = "  ".repeat(indent_level);
                     let start = node.start_position();
                     let end = node.end_position();
-                    if let Some(field_name) = cursor.field_name() {
-                        eprint!("{}: ", field_name);
-                    }
+                    let start_byte = node.start_byte();
+                    let end_byte = node.end_byte();
+                    let text = std::str::from_utf8(&source_code[start_byte..end_byte]).unwrap();
 
-                    error!(
-                        "{}({} [{}, {}] - [{}, {}]",
-                        indent,
-                        node.kind(),
-                        start.row,
-                        start.column,
-                        end.row,
-                        end.column
+                    warn!(
+                        "SYNTAX ERROR at [{}, {}] - [{}, {}]",
+                        start.row, start.column, end.row, end.column
                     );
+                    warn!("{text}");
+                    if node.is_missing() {
+                        if node.is_named() {
+                            warn!("MISSING {}", node.kind());
+                        } else {
+                            warn!("MISSING \"{}\"", node.kind().replace("\n", "\\n"));
+                        }
+                    }
                 }
                 if debug && !is_error {
                     let indent = "  ".repeat(indent_level);
                     let start = node.start_position();
                     let end = node.end_position();
                     if let Some(field_name) = cursor.field_name() {
-                        eprint!("{}: ", field_name);
+                        debug!("{}: ", field_name);
                     }
 
                     debug!(

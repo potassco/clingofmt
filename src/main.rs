@@ -179,8 +179,8 @@ fn pass_one(
                         mindent_level += 1;
                     }
                     "EXTERNAL" | "DEFINED" | "CONST" | "SHOW" | "BLOCK" | "EQ" | "cmp"
-                    | "INCLUDE" | "PROJECT" | "HEURISTIC" | "SHOWSIG" | "THEORY" | "VBAR"
-                    | "MAXIMIZE" | "MINIMIZE" => buf.push(' '),
+                    | "INCLUDE" | "PROJECT" | "HEURISTIC" | "THEORY" | "VBAR" | "MAXIMIZE"
+                    | "MINIMIZE" => buf.push(' '),
                     _ => {}
                 }
                 if node.child_count() == 0 {

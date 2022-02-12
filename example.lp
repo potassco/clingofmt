@@ -26,6 +26,7 @@ excluded(M):-exclude(M,A).
 :- bounds(L,U),varies(X),models(Y),index(A,I),   #sum{ 2**(X-Z) : Z = L..X,not counter(1,Z+1);   1,M : exclude(M,B),B != A } < Y.
 % Display literals of prime implicant
 #show select/2.
+#show select("root",X).
               n(s).bb(x).
 output(@fmt(("The @fmt() function is flexible enough to take multi-line ",
              "strings containing many placeholders: {} and ",
@@ -74,7 +75,7 @@ sel_vat(H, V) :- sel_vat(N,W) : cons(Identifier,var(N,W));
 #external a.
 #const c= "Dd".
 #minimize{fff}.
-#minimize {X:ccc(X)}.
+#maximise {X:ccc(X)}.
 #include "fail1.lp".
 #heuristic heu.[ha,ak]
 #defined bla/2.
@@ -86,5 +87,3 @@ sel_vat(H, V) :- sel_vat(N,W) : cons(Identifier,var(N,W));
 }.
 #edge(a,b).#edge(c,d).
 
-% #showsig s/2.
-% #showsig s(2,X).

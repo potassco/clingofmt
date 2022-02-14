@@ -117,7 +117,7 @@ fn pass_one(
 
     let mut in_statement = false;
     let mut in_conjunction = false;
-    let mut in_noptcondition = false;
+    let mut in_optcondition = false;
     let mut in_termvec = 0;
     let mut in_theory_atom_definition = false;
     let mut has_headlike = false;
@@ -152,7 +152,7 @@ fn pass_one(
                     "head" | "EDGE" => {
                         has_headlike = true;
                     }
-                    "ntermvec" | "binaryargvec" => {
+                    "termvec" | "binaryargvec" => {
                         in_termvec -= 1;
                     }
                     "theory_atom_definition" => {
@@ -167,8 +167,8 @@ fn pass_one(
                     "bodydot" => {
                         mindent_level -= 1;
                     }
-                    "noptcondition" | "noptimizecond" => {
-                        in_noptcondition = false;
+                    "optcondition" | "optimizecond" => {
+                        in_optcondition = false;
                         mindent_level -= 1;
                     }
                     "conjunction" => {
@@ -205,7 +205,7 @@ fn pass_one(
                                 if in_conjunction {
                                     mindent_level += 1;
                                 }
-                                if in_noptcondition {
+                                if in_optcondition {
                                     mindent_level += 1;
                                 }
                                 flushln_indent(out, &mut buf, mindent_level)?;
@@ -280,15 +280,15 @@ fn pass_one(
                     "bodydot" => {
                         has_body = true;
                     }
-                    "noptcondition" | "noptimizecond" => {
-                        in_noptcondition = true;
+                    "optcondition" | "optimizecond" => {
+                        in_optcondition = true;
                         //incease mindent_level after COLON
                     }
                     "conjunction" => {
                         in_conjunction = true;
                         //incease mindent_level after COLON
                     }
-                    "ntermvec" | "binaryargvec" => {
+                    "termvec" | "binaryargvec" => {
                         in_termvec += 1;
                     }
                     "theory_atom_definition" => {

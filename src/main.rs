@@ -345,7 +345,7 @@ fn pass_one(
                         if node.is_named() {
                             warn!("MISSING {}", node.kind());
                         } else {
-                            warn!("MISSING \"{}\"", node.kind().replace("\n", "\\n"));
+                            warn!("MISSING \"{}\"", node.kind().replace('\n', "\\n"));
                         }
                     }
                 }

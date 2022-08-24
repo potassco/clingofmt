@@ -77,32 +77,12 @@ fn line_flush_comment(out: &mut dyn Write, buf: &mut String) -> Result<()> {
     buf.clear();
     Ok(())
 }
-// fn flush(out: &mut dyn Write, buf: &mut String) -> Result<()> {
-//     write!(out, "{buf}")?;
-//     buf.clear();
-//     Ok(())
-// }
-// fn flushln(out: &mut dyn Write, buf: &mut String) -> Result<()> {
-//     writeln!(out, "{buf}")?;
-//     buf.clear();
-//     Ok(())
-// }
-// fn flushln_indent(out: &mut dyn Write, buf: &mut String, indent_level: usize) -> Result<()> {
-//     flushln(out, buf)?;
-//     indent(buf, indent_level)
-// }
 fn indent(buf: &mut String, ident_level: usize) -> Result<()> {
     for _i in 0..ident_level {
         buf.push_str("    ");
     }
     Ok(())
 }
-// fn indent_old(out: &mut dyn Write, ident_level: usize) -> Result<()> {
-//     for _i in 0..ident_level {
-//         write!(out, "  ")?;
-//     }
-//     Ok(())
-// }
 fn run() -> Result<()> {
     let opt = Opt::parse();
 
@@ -117,15 +97,49 @@ fn run() -> Result<()> {
     let tree = parser.parse(&source_code, None).unwrap();
 
     let mut buf = Vec::new();
-    let res1 = pass_one(&tree, &source_code, &mut buf, opt.debug);
-    if let Err(_) = res1 {
-        return res1;
-    }
+    pass_one(&tree, &source_code, &mut buf, opt.debug)?;
 
     let mut out = std::io::stdout();
     let buf_str: String = String::from_utf8(buf)?;
     write!(out, "{buf_str}")?;
     Ok(())
+}
+
+fn flush_in_between(out: &mut dyn Write, buf: &mut String, state: &mut State) -> Result<()> {
+    if !state.is_in_between {
+        let is_fact = state.has_head_like & !state.has_body & !state.has_if;
+
+        if state.in_fact_block {
+            if !is_fact {
+                writeln!(out)?;
+                writeln!(out)?;
+            } else {
+                write!(out, " ")?;
+            }
+        } else if !state.in_block {
+            writeln!(out)?;
+        }
+        line_flush_comment(out, buf)?;
+    } else {
+        line_flush_comment(out, buf)?;
+    }
+    writeln!(out)?;
+    state.is_in_between = true;
+    Ok(())
+}
+
+struct State {
+    is_in_between: bool,
+    in_fact_block: bool,
+    in_block: bool,
+    has_head_like: bool,
+    has_if: bool,
+    has_body: bool,
+    is_in_statement: bool,
+    in_conjunction: bool,
+    in_optcondition: bool,
+    in_termvec: usize,
+    in_theory_atom_definition: bool,
 }
 
 fn pass_one(
@@ -134,17 +148,19 @@ fn pass_one(
     out: &mut dyn Write,
     debug: bool,
 ) -> Result<()> {
-    let mut in_fact_block = false;
-    let mut in_block = true;
-    let mut has_head_like = false;
-    let mut has_if = false;
-    let mut has_body = false;
-    let mut is_in_statement = false;
-    let mut in_conjunction = false;
-    let mut in_optcondition = false;
-    let mut in_termvec = 0;
-    let mut in_theory_atom_definition = false;
-
+    let mut state = State {
+        is_in_between: false,
+        in_fact_block: false,
+        in_block: true,
+        has_head_like: false,
+        has_if: false,
+        has_body: false,
+        is_in_statement: false,
+        in_conjunction: false,
+        in_optcondition: false,
+        in_termvec: 0,
+        in_theory_atom_definition: false,
+    };
     let mut has_errors = false;
     let mut cursor = tree.walk();
 
@@ -182,58 +198,44 @@ fn pass_one(
             } else {
                 if is_named {
                     match node.kind() {
-                        // "comment" => {
-                        //     if is_in_statement {
-                        //         flush(out, &mut buf)?;
-                        //     } else {
-                        //         if nl {
-                        //             writeln!(out)?;
-                        //         }
-                        //         indent(out, mindent_level)?;
-                        //         flush(out, &mut buf)?;
-                        //     }
-                        // }
                         "statement" => {
-                            // if nl {
-                            //     writeln!(out)?;
-                            // }
-                            has_head_like = false;
-                            has_body = false;
-                            is_in_statement = true;
+                            state.has_head_like = false;
+                            state.has_body = false;
+                            state.is_in_statement = true;
                         }
-                        "head" | "EDGE" => has_head_like = true,
+                        "head" | "EDGE" => state.has_head_like = true,
                         "bodydot" => {
-                            has_body = true;
+                            state.has_body = true;
                         }
                         "optcondition" | "optimizecond" => {
-                            in_optcondition = true;
+                            state.in_optcondition = true;
                             //incease mindent_level after COLON
                         }
                         "conjunction" => {
-                            in_conjunction = true;
+                            state.in_conjunction = true;
                             //incease mindent_level after COLON
                         }
                         "termvec" | "binaryargvec" => {
-                            in_termvec += 1;
+                            state.in_termvec += 1;
                         }
                         "theory_atom_definition" => {
-                            in_termvec += 1;
-                            in_theory_atom_definition = true;
+                            state.in_termvec += 1;
+                            state.in_theory_atom_definition = true;
                         }
                         "LBRACK" => {
                             buf.push(' ');
-                            in_termvec += 1;
+                            state.in_termvec += 1;
                             mindent_level += 1;
                         }
                         // cosmetic whitespace
                         "IF" => buf.push(' '),
                         "VBAR" | "cmp" | "COLON" => buf.push(' '),
                         "RBRACE" => {
-                            if in_theory_atom_definition {
+                            if state.in_theory_atom_definition {
                                 buf.push(' ');
                             } else {
                                 mindent_level -= 1;
-                                buf.push('\n');
+                                flush_in_between(out, &mut buf, &mut state)?;
                                 indent(&mut buf, mindent_level)?;
                             }
                         }
@@ -277,102 +279,118 @@ fn pass_one(
                 let end_byte = node.end_byte();
                 let text = std::str::from_utf8(&source_code[start_byte..end_byte]).unwrap();
 
-                let next_token = format!("{text}");
-                buf.push_str(&next_token);
+                buf.push_str(text);
             }
 
             if is_named {
                 match node.kind() {
                     "source_file" => {
-                        if in_fact_block {
+                        if state.in_fact_block {
                             writeln!(out)?;
                         }
-                        writeln!(out)?;
                     }
                     "statement" => {
-                        let is_fact = has_head_like & !has_body;
+                        if !state.is_in_between {
+                            let is_fact = state.has_head_like & !state.has_body;
 
-                        if in_fact_block {
-                            if !is_fact {
+                            if state.in_fact_block {
+                                if !is_fact {
+                                    writeln!(out)?;
+                                    writeln!(out)?;
+                                } else {
+                                    write!(out, " ")?;
+                                }
+                            } else if !state.in_block {
                                 writeln!(out)?;
-                                writeln!(out)?;
-                            } else {
-                                write!(out, " ")?;
                             }
-                        } else if !in_block {
-                            writeln!(out)?;
-                        }
-                        if is_fact {
-                            in_fact_block = true
+                            if is_fact {
+                                state.in_fact_block = true
+                            } else {
+                                state.in_fact_block = false;
+                            }
+
+                            line_flush_stmt(out, &mut buf)?;
+
+                            if !state.in_fact_block {
+                                writeln!(out)?;
+                            }
+
+                            state.in_block = false;
                         } else {
-                            in_fact_block = false;
+                            let is_fact = state.has_head_like & !state.has_body;
+                            if is_fact {
+                                state.in_fact_block = true
+                            } else {
+                                state.in_fact_block = false;
+                            }
+
+                            line_flush_stmt(out, &mut buf)?;
+
+                            if !state.in_fact_block {
+                                writeln!(out)?;
+                            }
+
+                            state.in_block = false;
                         }
-
-                        line_flush_stmt(out, &mut buf)?;
-
-                        if !in_fact_block {
-                            writeln!(out)?;
-                        }
-
-                        in_block = false;
-                        is_in_statement = false;
+                        state.is_in_between = false;
+                        state.is_in_statement = false;
                     }
                     "single_comment" => {
-                        if is_in_statement {
-                            buf.push('\n');
+                        if state.is_in_statement {
+                            flush_in_between(out, &mut buf, &mut state)?;
                             indent(&mut buf, mindent_level)?;
                         } else {
-                            if in_fact_block {
+                            if state.in_fact_block {
                                 writeln!(out)?;
                                 writeln!(out)?;
-                            } else if !in_block {
+                            } else if !state.in_block {
                                 writeln!(out)?;
                             }
                             line_flush_comment(out, &mut buf)?;
 
                             writeln!(out)?;
-                            in_fact_block = false;
-                            in_block = true;
+                            state.in_fact_block = false;
+                            state.in_block = true;
                         }
                     }
                     "multi_comment" => {
-                        if !is_in_statement {
-                            if in_fact_block {
+                        if !state.is_in_statement {
+                            if state.in_fact_block {
                                 writeln!(out)?;
                                 writeln!(out)?;
-                            } else if !in_block {
+                            } else if !state.in_block {
                                 writeln!(out)?;
                             }
                             line_flush_comment(out, &mut buf)?;
 
                             writeln!(out)?;
-                            in_fact_block = false;
-                            in_block = true;
+                            state.in_fact_block = false;
+                            state.in_block = true;
                         }
                     }
                     "termvec" | "binaryargvec" => {
-                        in_termvec -= 1;
+                        state.in_termvec -= 1;
                     }
                     "theory_atom_definition" => {
-                        in_termvec -= 1;
-                        in_theory_atom_definition = false;
+                        state.in_termvec -= 1;
+                        state.in_theory_atom_definition = false;
                     }
                     "RBRACK" => {
                         mindent_level -= 1;
-                        in_termvec -= 1;
+                        state.in_termvec -= 1;
                     }
                     "bodydot" => {
-                        if has_if {
+                        if state.has_if {
                             mindent_level -= 1;
-                            has_if = false;
+                            state.has_if = false;
                         }
                     }
                     "optcondition" | "optimizecond" => {
-                        in_optcondition = false;
+                        state.in_optcondition = false;
                         mindent_level -= 1;
                     }
                     "conjunction" => {
-                        in_conjunction = false;
+                        state.in_conjunction = false;
                         mindent_level -= 1;
                     }
                     "LPAREN" => {
@@ -386,49 +404,49 @@ fn pass_one(
                     "cmp" | "VBAR" => buf.push(' '),
 
                     "SEM" => {
-                        buf.push('\n');
+                        flush_in_between(out, &mut buf, &mut state)?;
                         indent(&mut buf, mindent_level)?;
                     }
                     "COLON" => {
-                        if in_theory_atom_definition {
+                        if state.in_theory_atom_definition {
                             buf.push(' ');
                         } else {
-                            if in_conjunction {
+                            if state.in_conjunction {
                                 mindent_level += 1;
                             }
-                            if in_optcondition {
+                            if state.in_optcondition {
                                 mindent_level += 1;
                             }
-                            buf.push('\n');
+                            flush_in_between(out, &mut buf, &mut state)?;
                             indent(&mut buf, mindent_level)?;
                         }
                     }
                     "LBRACE" => {
-                        if in_theory_atom_definition {
+                        if state.in_theory_atom_definition {
                             buf.push(' ');
                         } else {
                             mindent_level += 1;
-                            buf.push('\n');
+                            flush_in_between(out, &mut buf, &mut state)?;
                             indent(&mut buf, mindent_level)?;
                         }
                     }
                     "COMMA" => {
-                        if in_termvec == 0
-                        /* || buf.len() >= MAX_LENGTH  */
+                        if state.in_termvec == 0
+                        /*|| buf.len() >= MAX_LENGTH */
                         {
-                            buf.push('\n');
+                            flush_in_between(out, &mut buf, &mut state)?;
                             indent(&mut buf, mindent_level)?;
                         } else {
                             buf.push(' ');
                         }
                     }
                     "IF" => {
-                        has_if = true;
+                        state.has_if = true;
                         mindent_level += 1; // decrease after bodydot
-                        if !has_head_like {
+                        if !state.has_head_like {
                             buf.push(' ');
                         } else {
-                            buf.push('\n');
+                            flush_in_between(out, &mut buf, &mut state)?;
                             indent(&mut buf, mindent_level)?;
                         }
                     }
@@ -469,34 +487,34 @@ fn _fmt_and_cmp_new(source_code: &str, res: &str) {
 
 #[test]
 fn test_pass_new() {
-    _fmt_and_cmp_new(" \n \n ", "\n");
-    _fmt_and_cmp_new("% bla blub       ", "% bla blub\n\n");
-    _fmt_and_cmp_new("% bla\n% blub       ", "% bla\n% blub\n\n");
+    _fmt_and_cmp_new(" \n \n ", "");
+    _fmt_and_cmp_new("% bla blub       ", "% bla blub\n");
+    _fmt_and_cmp_new("% bla\n% blub       ", "% bla\n% blub\n");
     _fmt_and_cmp_new(
         "%* multi  \n    line\n    comment  *%",
-        "%* multi  \n    line\n    comment  *%\n\n",
+        "%* multi  \n    line\n    comment  *%\n",
     );
-    _fmt_and_cmp_new(" pred(something).        ", "pred(something).\n\n");
+    _fmt_and_cmp_new(" pred(something).        ", "pred(something).\n");
     _fmt_and_cmp_new(
         " pred(something).     % bla   ",
-        "pred(something).\n\n% bla\n\n",
+        "pred(something).\n\n% bla\n",
     );
-    _fmt_and_cmp_new("% bla blub\n   a:-b.   ", "% bla blub\na :-\n    b.\n\n");
+    _fmt_and_cmp_new("% bla blub\n   a:-b.   ", "% bla blub\na :-\n    b.\n");
     _fmt_and_cmp_new(
         "% fact block\n a(1).\n a(2). a(3).",
-        "% fact block\na(1). a(2). a(3).\n\n",
+        "% fact block\na(1). a(2). a(3).\n",
     );
     _fmt_and_cmp_new(
         "%* fact block *%  \n  a(1).   \na(2). a(3).",
-        "%* fact block *%\na(1). a(2). a(3).\n\n",
+        "%* fact block *%\na(1). a(2). a(3).\n",
     );
     _fmt_and_cmp_new(
         "%* fact block *%  \n  a(1%*bla*%   ).   \na(2). a(3).",
-        "%* fact block *%\na(1%*bla*%). a(2). a(3).\n\n",
+        "%* fact block *%\na(1%*bla*%). a(2). a(3).\n",
     );
     _fmt_and_cmp_new(
         "% fact block1 \n  a(1%*bla*%   ).  \na(2). a(3).%* fact block2 *%  b(1%*bla*%   ).  \nb(2). b(3).",
-        "% fact block1\na(1%*bla*%). a(2). a(3).\n\n%* fact block2 *%\nb(1%*bla*%). b(2). b(3).\n\n",
+        "% fact block1\na(1%*bla*%). a(2). a(3).\n\n%* fact block2 *%\nb(1%*bla*%). b(2). b(3).\n",
     );
 }
 
@@ -763,35 +781,35 @@ sel_vat(H, V) :-
     %* c2
     sss *%cons(Identifier, tail(H, V)).
 
-bla%aa 
-%bb  
+bla%aa
+%bb
  :-
-    %aa 
+    %aa
     %bb
     varies(X),
-    #sum %aa 
+    #sum %aa
     %bb
     {
-        %aa 
+        %aa
         %bb
-        2**(X-Z)%aa 
-        %bb 
+        2**(X-Z)%aa
+        %bb
          :
-            %aa 
+            %aa
             %bb
             Z = L+1..X,
-            %aa 
+            %aa
             %bb
             not counter(1, Z);
-        %aa 
+        %aa
         %bb
         1, M :
             excluded(M)
-    }%aa 
+    }%aa
     %bb
-     >= %aa 
+     >= %aa
     %bb
-    Y%aa 
+    Y%aa
     %bb
     ,
     models(Y).
@@ -825,7 +843,6 @@ bla%aa
 }.
 
 #edge(a, b). #edge(c, d).
-
 "#;
     _fmt_and_cmp_new(source, result);
 }

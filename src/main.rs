@@ -110,6 +110,7 @@ fn pass_one(
     let mut cursor = tree.walk();
 
     let mut nl = false;
+    let mut has_if = false;
     let mut buf = String::new();
     let mut indent_level = 0;
     let mut mindent_level = 0;
@@ -165,7 +166,10 @@ fn pass_one(
                     }
                     "NOT" | "aggregatefunction" | "theory_identifier" => buf.push(' '),
                     "bodydot" => {
-                        mindent_level -= 1;
+                        if has_if {
+                            mindent_level -= 1;
+                            has_if = false;
+                        }
                     }
                     "optcondition" | "optimizecond" => {
                         in_optcondition = false;
@@ -230,6 +234,7 @@ fn pass_one(
                             }
                         }
                         "IF" => {
+                            has_if = true;
                             mindent_level += 1; // decrease after bodydot
                             if !has_headlike {
                                 buf.push(' ');

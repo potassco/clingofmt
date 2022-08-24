@@ -26,6 +26,7 @@ excluded(M):-exclude(M,A).
 :- bounds(L,U),varies(X),models(Y),index(A,I),   #sum{ 2**(X-Z) : Z = L..X,not counter(1,Z+1);   1,M : exclude(M,B),B != A } < Y.
 % Display literals of prime implicant
 #show select/2.
+#show a(A) : b(A), field(AN).
 #show select("root",X).
               n(s).bb(x).
 output(@fmt(("The @fmt() function is flexible enough to take multi-line ",

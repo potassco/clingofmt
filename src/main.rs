@@ -61,7 +61,7 @@ fn main() {
     }
 }
 
-fn line_flush_stmt(out: &mut dyn Write, buf: &mut String) -> Result<()> {
+fn flush_stmt_block(out: &mut dyn Write, buf: &mut String, state: &mut State) -> Result<()> {
     if let Some(last) = buf.pop() {
         if last != ' ' {
             write!(out, "{buf}{last}")?;
@@ -70,17 +70,15 @@ fn line_flush_stmt(out: &mut dyn Write, buf: &mut String) -> Result<()> {
         }
         buf.clear();
     }
-    Ok(())
-}
-fn line_flush_comment(out: &mut dyn Write, buf: &mut String) -> Result<()> {
-    write!(out, "{}", buf.trim_end())?;
-    buf.clear();
-    Ok(())
-}
-fn indent(buf: &mut String, ident_level: usize) -> Result<()> {
-    for _i in 0..ident_level {
-        buf.push_str("    ");
+    if !state.in_fact_block {
+        writeln!(out)?;
     }
+    state.in_block = false;
+    Ok(())
+}
+fn flush_comment_line(out: &mut dyn Write, buf: &mut String) -> Result<()> {
+    writeln!(out, "{}", buf.trim_end())?;
+    buf.clear();
     Ok(())
 }
 fn run() -> Result<()> {
@@ -105,7 +103,12 @@ fn run() -> Result<()> {
     Ok(())
 }
 
-fn flush_in_between(out: &mut dyn Write, buf: &mut String, state: &mut State) -> Result<()> {
+fn flush_in_between(
+    out: &mut dyn Write,
+    buf: &mut String,
+    state: &mut State,
+    indent_level: usize,
+) -> Result<()> {
     if !state.is_in_between {
         let is_fact = state.has_head_like & !state.has_body & !state.has_if;
 
@@ -119,11 +122,12 @@ fn flush_in_between(out: &mut dyn Write, buf: &mut String, state: &mut State) ->
         } else if !state.in_block {
             writeln!(out)?;
         }
-        line_flush_comment(out, buf)?;
+        flush_comment_line(out, buf)?;
     } else {
-        line_flush_comment(out, buf)?;
+        flush_comment_line(out, buf)?;
     }
-    writeln!(out)?;
+    let indent = "    ".repeat(indent_level);
+    buf.push_str(&indent);
     state.is_in_between = true;
     Ok(())
 }
@@ -173,15 +177,26 @@ fn pass_one(
         let node = cursor.node();
         let is_named = node.is_named();
         if !did_visit_children {
-            // what happens before the element
+            // What happens before the element
             if node.is_missing() {
+                let start = node.start_position();
                 if node.is_named() {
-                    warn!("MISSING {}", node.kind());
+                    warn!(
+                        "MISSING {} at [{}, {}]",
+                        node.kind(),
+                        start.row,
+                        start.column
+                    );
                 } else {
-                    warn!("MISSING \"{}\"", node.kind().replace('\n', "\\n"));
+                    warn!(
+                        "MISSING \"{}\" at [{}, {}]",
+                        node.kind().replace('\n', "\\n"),
+                        start.row,
+                        start.column
+                    );
                 }
-            }
-            if node.is_error() {
+                did_visit_children = true;
+            } else if node.is_error() {
                 buf.clear();
                 let start = node.start_position();
                 let end = node.end_position();
@@ -192,7 +207,7 @@ fn pass_one(
                     "SYNTAX ERROR at [{}, {}] - [{}, {}]",
                     start.row, start.column, end.row, end.column
                 );
-                warn!("{text}");
+                warn!("Unexpected: {text}");
                 did_visit_children = true;
             } else {
                 if is_named {
@@ -203,9 +218,7 @@ fn pass_one(
                             state.is_in_statement = true;
                         }
                         "head" | "EDGE" => state.has_head_like = true,
-                        "bodydot" => {
-                            state.has_body = true;
-                        }
+                        "bodydot" => state.has_body = true,
                         "optcondition" | "optimizecond" => {
                             state.in_optcondition = true;
                             //incease mindent_level after COLON
@@ -214,9 +227,7 @@ fn pass_one(
                             state.in_conjunction = true;
                             //incease mindent_level after COLON
                         }
-                        "termvec" | "binaryargvec" => {
-                            state.in_termvec += 1;
-                        }
+                        "termvec" | "binaryargvec" => state.in_termvec += 1,
                         "theory_atom_definition" => {
                             state.in_termvec += 1;
                             state.in_theory_atom_definition = true;
@@ -234,13 +245,10 @@ fn pass_one(
                                 buf.push(' ');
                             } else {
                                 mindent_level -= 1;
-                                flush_in_between(out, &mut buf, &mut state)?;
-                                indent(&mut buf, mindent_level)?;
+                                flush_in_between(out, &mut buf, &mut state, mindent_level)?;
                             }
                         }
-                        "RPAREN" => {
-                            mindent_level -= 1;
-                        }
+                        "RPAREN" => mindent_level -= 1,
                         _ => {}
                     }
                 }
@@ -270,14 +278,13 @@ fn pass_one(
                 }
             }
         } else {
-            // what happens after the element
+            // What happens after the element
 
-            // write token to buffer
+            // Write token to buffer
             if node.child_count() == 0 {
                 let start_byte = node.start_byte();
                 let end_byte = node.end_byte();
                 let text = std::str::from_utf8(&source_code[start_byte..end_byte]).unwrap();
-
                 buf.push_str(text);
             }
 
@@ -307,14 +314,7 @@ fn pass_one(
                             } else {
                                 state.in_fact_block = false;
                             }
-
-                            line_flush_stmt(out, &mut buf)?;
-
-                            if !state.in_fact_block {
-                                writeln!(out)?;
-                            }
-
-                            state.in_block = false;
+                            flush_stmt_block(out, &mut buf, &mut state)?;
                         } else {
                             let is_fact = state.has_head_like & !state.has_body;
                             if is_fact {
@@ -322,22 +322,14 @@ fn pass_one(
                             } else {
                                 state.in_fact_block = false;
                             }
-
-                            line_flush_stmt(out, &mut buf)?;
-
-                            if !state.in_fact_block {
-                                writeln!(out)?;
-                            }
-
-                            state.in_block = false;
+                            flush_stmt_block(out, &mut buf, &mut state)?;
                         }
                         state.is_in_between = false;
                         state.is_in_statement = false;
                     }
                     "single_comment" => {
                         if state.is_in_statement {
-                            flush_in_between(out, &mut buf, &mut state)?;
-                            indent(&mut buf, mindent_level)?;
+                            flush_in_between(out, &mut buf, &mut state, mindent_level)?;
                         } else {
                             if state.in_fact_block {
                                 writeln!(out)?;
@@ -345,9 +337,8 @@ fn pass_one(
                             } else if !state.in_block {
                                 writeln!(out)?;
                             }
-                            line_flush_comment(out, &mut buf)?;
+                            flush_comment_line(out, &mut buf)?;
 
-                            writeln!(out)?;
                             state.in_fact_block = false;
                             state.in_block = true;
                         }
@@ -360,16 +351,12 @@ fn pass_one(
                             } else if !state.in_block {
                                 writeln!(out)?;
                             }
-                            line_flush_comment(out, &mut buf)?;
-
-                            writeln!(out)?;
+                            flush_comment_line(out, &mut buf)?;
                             state.in_fact_block = false;
                             state.in_block = true;
                         }
                     }
-                    "termvec" | "binaryargvec" => {
-                        state.in_termvec -= 1;
-                    }
+                    "termvec" | "binaryargvec" => state.in_termvec -= 1,
                     "theory_atom_definition" => {
                         state.in_termvec -= 1;
                         state.in_theory_atom_definition = false;
@@ -392,9 +379,7 @@ fn pass_one(
                         state.in_conjunction = false;
                         mindent_level -= 1;
                     }
-                    "LPAREN" => {
-                        mindent_level += 1;
-                    }
+                    "LPAREN" => mindent_level += 1,
                     // Add semantic space
                     "NOT" | "aggregatefunction" | "theory_identifier" | "EXTERNAL" | "DEFINED"
                     | "CONST" | "SHOW" | "BLOCK" | "INCLUDE" | "PROJECT" | "HEURISTIC"
@@ -403,8 +388,7 @@ fn pass_one(
                     "cmp" | "VBAR" => buf.push(' '),
 
                     "SEM" => {
-                        flush_in_between(out, &mut buf, &mut state)?;
-                        indent(&mut buf, mindent_level)?;
+                        flush_in_between(out, &mut buf, &mut state, mindent_level)?;
                     }
                     "COLON" => {
                         if state.in_theory_atom_definition {
@@ -416,8 +400,7 @@ fn pass_one(
                             if state.in_optcondition {
                                 mindent_level += 1;
                             }
-                            flush_in_between(out, &mut buf, &mut state)?;
-                            indent(&mut buf, mindent_level)?;
+                            flush_in_between(out, &mut buf, &mut state, mindent_level)?;
                         }
                     }
                     "LBRACE" => {
@@ -425,16 +408,14 @@ fn pass_one(
                             buf.push(' ');
                         } else {
                             mindent_level += 1;
-                            flush_in_between(out, &mut buf, &mut state)?;
-                            indent(&mut buf, mindent_level)?;
+                            flush_in_between(out, &mut buf, &mut state, mindent_level)?;
                         }
                     }
                     "COMMA" => {
                         if state.in_termvec == 0
                         /*|| buf.len() >= MAX_LENGTH */
                         {
-                            flush_in_between(out, &mut buf, &mut state)?;
-                            indent(&mut buf, mindent_level)?;
+                            flush_in_between(out, &mut buf, &mut state, mindent_level)?;
                         } else {
                             buf.push(' ');
                         }
@@ -445,8 +426,7 @@ fn pass_one(
                         if !state.has_head_like {
                             buf.push(' ');
                         } else {
-                            flush_in_between(out, &mut buf, &mut state)?;
-                            indent(&mut buf, mindent_level)?;
+                            flush_in_between(out, &mut buf, &mut state, mindent_level)?;
                         }
                     }
                     _ => {}

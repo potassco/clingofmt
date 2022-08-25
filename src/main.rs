@@ -161,8 +161,8 @@ fn pass_one(
         in_termvec: 0,
         in_theory_atom_definition: false,
     };
-    let mut has_errors = false;
     let mut cursor = tree.walk();
+    let has_errors = cursor.node().has_error();
 
     let mut buf = String::new();
     let mut indent_level = 0;
@@ -174,8 +174,14 @@ fn pass_one(
         let is_named = node.is_named();
         if !did_visit_children {
             // what happens before the element
+            if node.is_missing() {
+                if node.is_named() {
+                    warn!("MISSING {}", node.kind());
+                } else {
+                    warn!("MISSING \"{}\"", node.kind().replace('\n', "\\n"));
+                }
+            }
             if node.is_error() {
-                has_errors = true;
                 buf.clear();
                 let start = node.start_position();
                 let end = node.end_position();
@@ -187,13 +193,6 @@ fn pass_one(
                     start.row, start.column, end.row, end.column
                 );
                 warn!("{text}");
-                if node.is_missing() {
-                    if node.is_named() {
-                        warn!("MISSING {}", node.kind());
-                    } else {
-                        warn!("MISSING \"{}\"", node.kind().replace('\n', "\\n"));
-                    }
-                }
                 did_visit_children = true;
             } else {
                 if is_named {

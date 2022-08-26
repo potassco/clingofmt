@@ -116,7 +116,6 @@ fn pass_one(
 
     loop {
         let node = cursor.node();
-        let is_named = node.is_named();
         if !did_visit_children {
             // What happens before the element
             if node.is_missing() {
@@ -150,36 +149,34 @@ fn pass_one(
                 warn!("Unexpected: {text}");
                 did_visit_children = true;
             } else {
-                if is_named {
-                    if node.kind() == "statement" {
-                        let mut buf = Vec::new();
-                        let stmt_type = pass_two(&node, source_code, &mut buf, debug)?;
-                        let buf_str = String::from_utf8(buf)?;
+                if node.kind() == "statement" {
+                    let mut buf = Vec::new();
+                    let stmt_type = pass_two(&node, source_code, &mut buf, debug)?;
 
-                        if !in_block & !in_fact_block {
-                            writeln!(out)?;
-                        }
-                        if in_fact_block {
-                            if stmt_type == StatementType::Fact {
-                                write!(out, " ")?;
-                            } else {
-                                writeln!(out)?;
-                                writeln!(out)?;
-                            }
-                        }
-                        match stmt_type {
-                            StatementType::Fact => in_fact_block = true,
-                            StatementType::Other => in_fact_block = false,
-                        }
-                        write!(out, "{}", buf_str)?;
-
-                        if !in_fact_block {
-                            writeln!(out)?;
-                        }
-
-                        in_block = false;
-                        short_cut = true;
+                    if !in_block & !in_fact_block {
+                        writeln!(out)?;
                     }
+                    if in_fact_block {
+                        if stmt_type == StatementType::Fact {
+                            write!(out, " ")?;
+                        } else {
+                            writeln!(out)?;
+                            writeln!(out)?;
+                        }
+                    }
+                    match stmt_type {
+                        StatementType::Fact => in_fact_block = true,
+                        StatementType::Other => in_fact_block = false,
+                    }
+                    let buf_str = String::from_utf8(buf)?;
+                    write!(out, "{}", buf_str)?;
+
+                    if !in_fact_block {
+                        writeln!(out)?;
+                    }
+
+                    in_block = false;
+                    short_cut = true;
                 }
                 if debug {
                     let indent = "  ".repeat(indent_level);
@@ -210,33 +207,31 @@ fn pass_one(
             }
         } else {
             // What happens after the element
-            if is_named {
-                match node.kind() {
-                    "source_file" => {
-                        if in_fact_block {
-                            writeln!(out)?;
-                        }
+            match node.kind() {
+                "source_file" => {
+                    if in_fact_block {
+                        writeln!(out)?;
                     }
-                    "statement" => {
-                        short_cut = false;
-                    }
-                    "single_comment" | "multi_comment" => {
-                        let start_byte = node.start_byte();
-                        let end_byte = node.end_byte();
-                        let text = std::str::from_utf8(&source_code[start_byte..end_byte]).unwrap();
-
-                        if in_fact_block {
-                            writeln!(out)?;
-                            writeln!(out)?;
-                        } else if !in_block {
-                            writeln!(out)?;
-                        }
-                        writeln!(out, "{}", text.trim_end())?;
-                        in_fact_block = false;
-                        in_block = true;
-                    }
-                    _ => {}
                 }
+                "statement" => {
+                    short_cut = false;
+                }
+                "single_comment" | "multi_comment" => {
+                    let start_byte = node.start_byte();
+                    let end_byte = node.end_byte();
+                    let text = std::str::from_utf8(&source_code[start_byte..end_byte]).unwrap();
+
+                    if in_fact_block {
+                        writeln!(out)?;
+                        writeln!(out)?;
+                    } else if !in_block {
+                        writeln!(out)?;
+                    }
+                    writeln!(out, "{}", text.trim_end())?;
+                    in_fact_block = false;
+                    in_block = true;
+                }
+                _ => {}
             }
             if cursor.goto_next_sibling() {
                 did_visit_children = false;
@@ -280,7 +275,6 @@ fn pass_two(
 
     loop {
         let node = cursor.node();
-        let is_named = node.is_named();
         if !did_visit_children {
             // What happens before the element
             if node.is_missing() {
@@ -314,46 +308,43 @@ fn pass_two(
                 warn!("Unexpected: {text}");
                 did_visit_children = true;
             } else {
-                if is_named {
-                    match node.kind() {
-                        "statement" => {
-                            state.has_head_like = false;
-                            state.has_body = false;
-                        }
-                        "head" | "EDGE" => state.has_head_like = true,
-                        "bodydot" => state.has_body = true,
-                        "optcondition" | "optimizecond" => {
-                            state.in_optcondition = true;
-                            //incease mindent_level after COLON
-                        }
-                        "conjunction" => {
-                            state.in_conjunction = true;
-                            //incease mindent_level after COLON
-                        }
-                        "termvec" | "binaryargvec" => state.in_termvec += 1,
-                        "theory_atom_definition" => {
-                            state.in_termvec += 1;
-                            state.in_theory_atom_definition = true;
-                        }
-                        "LBRACK" => {
-                            cosmetic_ws = true;
-                            state.in_termvec += 1;
-                            mindent_level += 1;
-                        }
-                        // cosmetic whitespace
-                        "IF" => cosmetic_ws = true,
-                        "VBAR" | "cmp" | "COLON" => cosmetic_ws = true,
-                        "RBRACE" => {
-                            if state.in_theory_atom_definition {
-                                cosmetic_ws = true;
-                            } else {
-                                mindent_level -= 1;
-                                flush = true;
-                            }
-                        }
-                        "RPAREN" => mindent_level -= 1,
-                        _ => {}
+                match node.kind() {
+                    "statement" => {
+                        state.has_head_like = false;
+                        state.has_body = false;
                     }
+                    "head" | "EDGE" => state.has_head_like = true,
+                    "bodydot" => state.has_body = true,
+                    "optcondition" | "optimizecond" => {
+                        state.in_optcondition = true;
+                        //incease mindent_level after COLON
+                    }
+                    "conjunction" => {
+                        state.in_conjunction = true;
+                        //incease mindent_level after COLON
+                    }
+                    "termvec" | "binaryargvec" => state.in_termvec += 1,
+                    "theory_atom_definition" => {
+                        state.in_termvec += 1;
+                        state.in_theory_atom_definition = true;
+                    }
+                    "LBRACK" => {
+                        cosmetic_ws = true;
+                        state.in_termvec += 1;
+                        mindent_level += 1;
+                    }
+                    "IF" => cosmetic_ws = true,
+                    "VBAR" | "cmp" | "COLON" => cosmetic_ws = true,
+                    "RBRACE" => {
+                        if state.in_theory_atom_definition {
+                            cosmetic_ws = true;
+                        } else {
+                            mindent_level -= 1;
+                            flush = true;
+                        }
+                    }
+                    "RPAREN" => mindent_level -= 1,
+                    _ => {}
                 }
                 if debug {
                     let indent = "  ".repeat(indent_level);
@@ -404,86 +395,84 @@ fn pass_two(
                 }
             }
 
-            if is_named {
-                match node.kind() {
-                    "single_comment" => {
-                        flush = true;
-                    }
-                    "termvec" | "binaryargvec" => state.in_termvec -= 1,
-                    "theory_atom_definition" => {
-                        state.in_termvec -= 1;
-                        state.in_theory_atom_definition = false;
-                    }
-                    "RBRACK" => {
-                        mindent_level -= 1;
-                        state.in_termvec -= 1;
-                    }
-                    "bodydot" => {
-                        if state.has_if {
-                            mindent_level -= 1;
-                            state.has_if = false;
-                        }
-                    }
-                    "optcondition" | "optimizecond" => {
-                        state.in_optcondition = false;
-                        mindent_level -= 1;
-                    }
-                    "conjunction" => {
-                        state.in_conjunction = false;
-                        mindent_level -= 1;
-                    }
-                    "LPAREN" => mindent_level += 1,
-                    // Add semantic space
-                    "NOT" | "aggregatefunction" | "theory_identifier" | "EXTERNAL" | "DEFINED"
-                    | "CONST" | "SHOW" | "BLOCK" | "INCLUDE" | "PROJECT" | "HEURISTIC"
-                    | "THEORY" | "MAXIMIZE" | "MINIMIZE" => write!(out, " ")?,
-                    // Add cosmetic space
-                    "cmp" | "VBAR" => write!(out, " ")?,
-
-                    "SEM" => {
-                        flush = true;
-                    }
-                    "COLON" => {
-                        if state.in_theory_atom_definition {
-                            write!(out, " ")?;
-                        } else {
-                            if state.in_conjunction {
-                                mindent_level += 1;
-                            }
-                            if state.in_optcondition {
-                                mindent_level += 1;
-                            }
-                            flush = true;
-                        }
-                    }
-                    "LBRACE" => {
-                        if state.in_theory_atom_definition {
-                            write!(out, " ")?;
-                        } else {
-                            mindent_level += 1;
-                            flush = true;
-                        }
-                    }
-                    "COMMA" => {
-                        if state.in_termvec == 0
-                        /*|| buf.len() >= MAX_LENGTH */
-                        {
-                            flush = true;
-                        } else {
-                            write!(out, " ")?;
-                        }
-                    }
-                    "IF" => {
-                        state.has_if = true;
-                        mindent_level += 1; // decrease after bodydot
-                        if !state.has_head_like {
-                            write!(out, " ")?;
-                        } else {
-                            flush = true;
-                        }
-                    }
-                    _ => {}
+            match node.kind() {
+                "single_comment" => {
+                    flush = true;
                 }
+                "termvec" | "binaryargvec" => state.in_termvec -= 1,
+                "theory_atom_definition" => {
+                    state.in_termvec -= 1;
+                    state.in_theory_atom_definition = false;
+                }
+                "RBRACK" => {
+                    mindent_level -= 1;
+                    state.in_termvec -= 1;
+                }
+                "bodydot" => {
+                    if state.has_if {
+                        mindent_level -= 1;
+                        state.has_if = false;
+                    }
+                }
+                "optcondition" | "optimizecond" => {
+                    state.in_optcondition = false;
+                    mindent_level -= 1;
+                }
+                "conjunction" => {
+                    state.in_conjunction = false;
+                    mindent_level -= 1;
+                }
+                "LPAREN" => mindent_level += 1,
+                // Add semantic space
+                "NOT" | "aggregatefunction" | "theory_identifier" | "EXTERNAL" | "DEFINED"
+                | "CONST" | "SHOW" | "BLOCK" | "INCLUDE" | "PROJECT" | "HEURISTIC" | "THEORY"
+                | "MAXIMIZE" | "MINIMIZE" => write!(out, " ")?,
+                // Add cosmetic space
+                "cmp" | "VBAR" => write!(out, " ")?,
+
+                "SEM" => {
+                    flush = true;
+                }
+                "COLON" => {
+                    if state.in_theory_atom_definition {
+                        write!(out, " ")?;
+                    } else {
+                        if state.in_conjunction {
+                            mindent_level += 1;
+                        }
+                        if state.in_optcondition {
+                            mindent_level += 1;
+                        }
+                        flush = true;
+                    }
+                }
+                "LBRACE" => {
+                    if state.in_theory_atom_definition {
+                        write!(out, " ")?;
+                    } else {
+                        mindent_level += 1;
+                        flush = true;
+                    }
+                }
+                "COMMA" => {
+                    if state.in_termvec == 0
+                    /*|| buf.len() >= MAX_LENGTH */
+                    {
+                        flush = true;
+                    } else {
+                        write!(out, " ")?;
+                    }
+                }
+                "IF" => {
+                    state.has_if = true;
+                    mindent_level += 1; // decrease after bodydot
+                    if !state.has_head_like {
+                        write!(out, " ")?;
+                    } else {
+                        flush = true;
+                    }
+                }
+                _ => {}
             }
             if cursor.goto_next_sibling() {
                 did_visit_children = false;

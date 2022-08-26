@@ -1,90 +1,12 @@
-use anyhow::{Context, Result};
-use clap::Parser;
-use log::{debug, error, warn};
-use std::fs;
-use std::{
-    io::{self, Write},
-    path::PathBuf,
-};
+use anyhow::Result;
+use log::{debug, warn};
+use std::io::Write;
 
-const MAX_LENGTH: usize = 60;
-
-/// Format clingo code
-#[derive(Parser, Debug)]
-#[clap(version, author)]
-struct Opt {
-    /// Input file in clingo format
-    #[clap(name = "FILE", parse(from_os_str))]
-    file: PathBuf,
-
-    /// Enable debug output
-    #[clap(long)]
-    debug: bool,
-}
-
-pub enum Reader<'a> {
-    File(io::BufReader<fs::File>),
-    Stdin(io::StdinLock<'a>),
-}
-impl<'a> io::Read for Reader<'a> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        match self {
-            Self::File(reader) => reader.read(buf),
-            Self::Stdin(guard) => guard.read(buf),
-        }
-    }
-}
-impl<'a> io::BufRead for Reader<'a> {
-    fn fill_buf(&mut self) -> io::Result<&[u8]> {
-        match self {
-            Self::File(reader) => reader.fill_buf(),
-            Self::Stdin(guard) => guard.fill_buf(),
-        }
-    }
-    fn consume(&mut self, amt: usize) {
-        match self {
-            Self::File(reader) => reader.consume(amt),
-            Self::Stdin(guard) => guard.consume(amt),
-        }
-    }
-}
-
-fn main() {
-    stderrlog::new()
-        .module(module_path!())
-        .verbosity(3)
-        .init()
-        .unwrap();
-    if let Err(err) = run() {
-        error!("{:?}", err);
-        std::process::exit(1);
-    }
-}
-
-fn run() -> Result<()> {
-    let opt = Opt::parse();
-
-    let path = opt.file.to_str().unwrap();
-    let source_code =
-        fs::read(path).with_context(|| format!("Error reading source file {}", path))?;
-
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(tree_sitter_clingo::language())
-        .expect("Error loading clingo grammar");
-    let tree = parser.parse(&source_code, None).unwrap();
-
-    let mut buf = Vec::new();
-    pass_one(&tree, &source_code, &mut buf, opt.debug)?;
-
-    let mut out = std::io::stdout();
-    let buf_str = std::str::from_utf8(&buf)?;
-    write!(out, "{buf_str}")?;
-    Ok(())
-}
-
+#[cfg(test)]
+mod tests;
 struct State {
     is_show: bool,
+    is_include: bool,
     has_head_like: bool,
     has_if: bool,
     has_body: bool,
@@ -97,18 +19,20 @@ struct State {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum StatementType {
     Fact,
-    ShowStmt, // show statements
+    Show,    // show statements
+    Include, // include statements
     Other,
 }
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum BlockType {
-    Show, // show statements
+    Show,    // show statements
+    Include, // include statements
     Fact,
     Some,
     No,
 }
 
-fn pass_one(
+pub fn pass_one(
     tree: &tree_sitter::Tree,
     source_code: &[u8],
     out: &mut dyn Write,
@@ -171,25 +95,26 @@ fn pass_one(
                             BlockType::Some => {}
                             BlockType::Show => {
                                 match stmt_type {
-                                    StatementType::Other => writeln!(out)?,
-                                    StatementType::Fact => writeln!(out)?,
-                                    StatementType::ShowStmt => {}
+                                    StatementType::Show => {}
+                                    _ => writeln!(out)?,
                                 };
                             }
                             BlockType::Fact => {
                                 match stmt_type {
-                                    StatementType::Other => {
-                                        writeln!(out)?;
-                                        writeln!(out)?;
-                                    }
                                     StatementType::Fact => write!(out, " ")?,
-                                    StatementType::ShowStmt => {
+                                    _ => {
                                         writeln!(out)?;
                                         writeln!(out)?;
                                     }
                                 };
                             }
                             BlockType::No => writeln!(out)?,
+                            BlockType::Include => {
+                                match stmt_type {
+                                    StatementType::Include => {}
+                                    _ => writeln!(out)?,
+                                };
+                            }
                         }
 
                         let buf_str = std::str::from_utf8(&buf)?;
@@ -201,22 +126,26 @@ fn pass_one(
                             StatementType::Fact => {
                                 current_block_type = BlockType::Fact;
                             }
-                            StatementType::ShowStmt => {
+                            StatementType::Show => {
                                 writeln!(out)?;
                                 current_block_type = BlockType::Show;
+                            }
+                            StatementType::Include => {
+                                writeln!(out)?;
+                                current_block_type = BlockType::Include;
                             }
                         };
                         short_cut = true;
                     }
                     "single_comment" | "multi_comment" => {
                         match current_block_type {
-                            BlockType::Show => leave_block(out, &mut current_block_type),
                             BlockType::Fact => {
                                 writeln!(out)?;
                                 leave_block(out, &mut current_block_type);
                             }
                             BlockType::No => writeln!(out)?,
-                            _ => {}
+                            BlockType::Some => {}
+                            _ => leave_block(out, &mut current_block_type),
                         };
                         current_block_type = BlockType::Some;
                     }
@@ -296,6 +225,7 @@ fn pass_two(
     let mut cosmetic_ws = false;
     let mut state = State {
         is_show: false,
+        is_include: false,
         has_head_like: false,
         has_if: false,
         has_body: false,
@@ -460,15 +390,19 @@ fn pass_two(
                 "LPAREN" => mindent_level += 1,
                 // Add semantic whitespace
                 "NOT" | "aggregatefunction" | "theory_identifier" | "EXTERNAL" | "DEFINED"
-                | "CONST" | "BLOCK" | "INCLUDE" | "PROJECT" | "HEURISTIC" | "THEORY"
-                | "MAXIMIZE" | "MINIMIZE" => write!(out, " ")?,
+                | "CONST" | "BLOCK" | "PROJECT" | "HEURISTIC" | "THEORY" | "MAXIMIZE"
+                | "MINIMIZE" => write!(out, " ")?,
+                "INCLUDE" => {
+                    write!(out, " ")?;
+                    state.is_include = true;
+                }
                 "SHOW" => {
                     write!(out, " ")?;
                     state.is_show = true;
                 }
                 // Add cosmetic whitespace
                 "cmp" | "VBAR" => write!(out, " ")?,
-                "SEM" =>  flush = true,
+                "SEM" => flush = true,
                 "COLON" => {
                     if state.in_theory_atom_definition | state.is_show {
                         write!(out, " ")?;
@@ -488,7 +422,7 @@ fn pass_two(
                     }
                 }
                 "COMMA" => {
-                    if state.in_termvec == 0 && ! state.is_show
+                    if state.in_termvec == 0 && !state.is_show
                     /*|| buf.len() >= MAX_LENGTH */
                     {
                         flush = true;
@@ -520,381 +454,10 @@ fn pass_two(
     if state.has_head_like & !state.has_body {
         Ok(StatementType::Fact)
     } else if state.is_show {
-        Ok(StatementType::ShowStmt)
+        Ok(StatementType::Show)
+    } else if state.is_include {
+        Ok(StatementType::Include)
     } else {
         Ok(StatementType::Other)
     }
-}
-
-/// function to simplify tests
-fn _fmt_and_cmp_new(source_code: &str, res: &str) {
-    let mut buf = Vec::new();
-    let mut parser = tree_sitter::Parser::new();
-    parser
-        .set_language(tree_sitter_clingo::language())
-        .expect("Error loading clingo grammar");
-
-    let tree = parser.parse(&source_code, None).unwrap();
-
-    pass_one(&tree, source_code.as_bytes(), &mut buf, false).unwrap();
-    let parse_res = std::str::from_utf8(&buf).unwrap();
-    assert_eq!(parse_res, res)
-}
-
-#[test]
-fn test_pass_new() {
-    _fmt_and_cmp_new(" \n \n ", "");
-    _fmt_and_cmp_new("% bla blub       ", "% bla blub\n");
-    _fmt_and_cmp_new("% bla\n% blub       ", "% bla\n% blub\n");
-    _fmt_and_cmp_new(
-        "%* multi  \n    line\n    comment  *%",
-        "%* multi  \n    line\n    comment  *%\n",
-    );
-    _fmt_and_cmp_new(" pred(something).        ", "pred(something).\n");
-    _fmt_and_cmp_new(
-        " pred(something).     % bla   ",
-        "pred(something).\n\n% bla\n",
-    );
-    _fmt_and_cmp_new("% bla blub\n   a:-b.   ", "% bla blub\na :-\n    b.\n");
-    _fmt_and_cmp_new(
-        "% fact block\n a(1).\n a(2). a(3).",
-        "% fact block\na(1). a(2). a(3).\n",
-    );
-    _fmt_and_cmp_new(
-        "%* fact block *%  \n  a(1).   \na(2). a(3).",
-        "%* fact block *%\na(1). a(2). a(3).\n",
-    );
-    _fmt_and_cmp_new(
-        "%* fact block *%  \n  a(1%*bla*%   ).   \na(2). a(3).",
-        "%* fact block *%\na(1%*bla*%). a(2). a(3).\n",
-    );
-    _fmt_and_cmp_new(
-        "% fact block1 \n  a(1%*bla*%   ).  \na(2). a(3).%* fact block2 *%  b(1%*bla*%   ).  \nb(2). b(3).",
-        "% fact block1\na(1%*bla*%). a(2). a(3).\n\n%* fact block2 *%\nb(1%*bla*%). b(2). b(3).\n",
-    );
-}
-
-#[test]
-fn test_pass_old() {
-    let source = r#"% Derive (varying) atoms
-atom(A):-model(M),true(M,A).vary(A):-model(M),atom(A),not true(M,A).
-% Derive lower bound LB and upper bound UB for size of prime implicants
-% - LB: minimum number of varying atoms s.t. interpretations don't exceed models
-% - UB: minimum of number of varying atoms and number of non-models
-varies(X):-X = #count{ A : vary(A) }.models(Y):-Y = #count{ M : model(M) }.:- models(0). % must have some model
-minsize(Y,2**X,0) :-varies(X),models(Y),1 < Y. % nothing varies if one model
-minsize(Y,Z/2,L+1):-minsize(Y,Z,L),Y < Z.
-bounds(L,(X+F-|X-F|)/2):-varies(X),minsize(Y,Z,L),not minsize(Y,Z/2,L+1),
-                          F = 2**X-Y.
-% Select literals for prime implicant
-  select(A,1)         :-atom(A),not vary(A).{ select(A,0..1) } < 2:-vary(A),not bounds(0,0).
-selected(A):-select(A,V),vary(A).
-% Check lower and upper bounds via "Sinz counter" on selected varying atoms
-index(A,I):-vary(A),I = #count{ B : vary(B),B <= A },not bounds(0,0).
-counter(I,1)  :-index(A,I),bounds(L,U),L <= I,selected(A).counter(I,C+1):-index(A,I),bounds(L,U),C < U,selected(A),counter(I+1,C).counter(I,C)  :-index(A,I),bounds(L,U),L < C+I,counter(I+1,C).
-:- bounds(L,U),0 < L,not counter(1,L).:- bounds(L,U),index(A,I),selected(A),counter(I+1,U).
-% Derive models excluded by (some) selected literal
-exclude(M,A):-model(M),select(A,0),true(M,A).exclude(M,A):-model(M),select(A,1),not true(M,A).
-excluded(M):-exclude(M,A).
-% Check that all interpretations extending prime implicant are models
-:- bounds(L,U),varies(X),models(Y),
-   #sum{ 2**(X-Z) : Z = L+1..X,not counter(1,Z);
-              1,M : excluded(M) } >= Y.
-% Check that removing any literal of prime implicant yields some non-model
-:- bounds(L,U),varies(X),models(Y),index(A,I),   #sum{ 2**(X-Z) : Z = L..X,not counter(1,Z+1);   1,M : exclude(M,B),B != A } < Y.
-% Display literals of prime implicant
-#show select/2.
-#show a(A) : b(A), field(AN).
-#show select("root",X).
-              n(s).bb(x).
-output(@fmt(("The @fmt() function is flexible enough to take multi-line ",
-             "strings containing many placeholders: {} and ",
-             "{} and {} outputs"), (X,Y,Z))) :- num(X),string(Y),constant(Z).
-sel_vat(H, V) :- sel_vat(N,W) : cons(Identifier,var(N,W));
-   subgraph(N) : cons(Identifier, has_x("strong",N))%*jjj*%;
-   %c1
-   has_con(F, T, Na, Index) 
-   %c0
-   %c01
-   : cons(Identifier, has_con("strong", F, T, Na, Index));
-   %c2
-   %c3
-   not has_con(F, _, Na, Index) : cons(Identifier, has_con("weak", F, Na, Index));  %* c2
-    sss *%
-   cons(Identifier,tail(H,V)).
-
-    bla%aa 
-    %bb  
-    :-%aa 
-    %bb
-     varies(X),
-    #sum %aa 
-    %bb
-    { %aa 
-    %bb
-        2**(X-Z)%aa 
-    %bb 
-    :%aa 
-    %bb
-            Z = L+1..X,%aa 
-    %bb
-            not counter(1, Z); %aa 
-    %bb
-        1, M :
-            excluded(M)
-    } %aa 
-    %bb
-     >= %aa 
-    %bb
-     Y %aa 
-    %bb
-    ,models(Y).
-
-:- bla(1,2).
-#external a.
-#const c= "Dd".
-#minimize{fff}.
-#maximise {X:ccc(X)}.
-#include "fail1.lp".
-#heuristic heu.[ha,ak]
-#defined bla/2.
-#project p("s",X).
-
-#theory test {
-    &q/1 : t, body;
-    &r/0 : t, { < }, t, directive
-}.
-#edge(a,b).#edge(c,d).
-
-"#;
-    let result = r#"% Derive (varying) atoms
-atom(A) :-
-    model(M),
-    true(M, A).
-
-vary(A) :-
-    model(M),
-    atom(A),
-    not true(M, A).
-
-% Derive lower bound LB and upper bound UB for size of prime implicants
-% - LB: minimum number of varying atoms s.t. interpretations don't exceed models
-% - UB: minimum of number of varying atoms and number of non-models
-varies(X) :-
-    X = #count {
-        A :
-            vary(A)
-    }.
-
-models(Y) :-
-    Y = #count {
-        M :
-            model(M)
-    }.
-
- :- models(0).
-
-% must have some model
-minsize(Y, 2**X, 0) :-
-    varies(X),
-    models(Y),
-    1 < Y.
-
-% nothing varies if one model
-minsize(Y, Z/2, L+1) :-
-    minsize(Y, Z, L),
-    Y < Z.
-
-bounds(L, (X+F- | X-F | )/2) :-
-    varies(X),
-    minsize(Y, Z, L),
-    not minsize(Y, Z/2, L+1),
-    F = 2**X-Y.
-
-% Select literals for prime implicant
-select(A, 1) :-
-    atom(A),
-    not vary(A).
-
-{
-    select(A, 0..1)
-} < 2 :-
-    vary(A),
-    not bounds(0, 0).
-
-selected(A) :-
-    select(A, V),
-    vary(A).
-
-% Check lower and upper bounds via "Sinz counter" on selected varying atoms
-index(A, I) :-
-    vary(A),
-    I = #count {
-        B :
-            vary(B),
-            B <= A
-    },
-    not bounds(0, 0).
-
-counter(I, 1) :-
-    index(A, I),
-    bounds(L, U),
-    L <= I,
-    selected(A).
-
-counter(I, C+1) :-
-    index(A, I),
-    bounds(L, U),
-    C < U,
-    selected(A),
-    counter(I+1, C).
-
-counter(I, C) :-
-    index(A, I),
-    bounds(L, U),
-    L < C+I,
-    counter(I+1, C).
-
- :- bounds(L, U),
-    0 < L,
-    not counter(1, L).
-
- :- bounds(L, U),
-    index(A, I),
-    selected(A),
-    counter(I+1, U).
-
-% Derive models excluded by (some) selected literal
-exclude(M, A) :-
-    model(M),
-    select(A, 0),
-    true(M, A).
-
-exclude(M, A) :-
-    model(M),
-    select(A, 1),
-    not true(M, A).
-
-excluded(M) :-
-    exclude(M, A).
-
-% Check that all interpretations extending prime implicant are models
- :- bounds(L, U),
-    varies(X),
-    models(Y),
-    #sum {
-        2**(X-Z) :
-            Z = L+1..X,
-            not counter(1, Z);
-        1, M :
-            excluded(M)
-    } >= Y.
-
-% Check that removing any literal of prime implicant yields some non-model
- :- bounds(L, U),
-    varies(X),
-    models(Y),
-    index(A, I),
-    #sum {
-        2**(X-Z) :
-            Z = L..X,
-            not counter(1, Z+1);
-        1, M :
-            exclude(M, B),
-            B != A
-    } < Y.
-
-% Display literals of prime implicant
-#show select/2.
-#show a(A) : b(A), field(AN).
-#show select("root", X).
-
-n(s). bb(x).
-
-output(@fmt(("The @fmt() function is flexible enough to take multi-line ", "strings containing many placeholders: {} and ", "{} and {} outputs"), (X, Y, Z))) :-
-    num(X),
-    string(Y),
-    constant(Z).
-
-sel_vat(H, V) :-
-    sel_vat(N, W) :
-        cons(Identifier, var(N, W));
-    subgraph(N) :
-        cons(Identifier, has_x("strong", N))%*jjj*%;
-    %c1
-    has_con(F, T, Na, Index)%c0
-    %c01
-     :
-        cons(Identifier, has_con("strong", F, T, Na, Index));
-    %c2
-    %c3
-    not has_con(F, _, Na, Index) :
-        cons(Identifier, has_con("weak", F, Na, Index));
-    %* c2
-    sss *%cons(Identifier, tail(H, V)).
-
-bla%aa
-%bb
- :-
-    %aa
-    %bb
-    varies(X),
-    #sum %aa
-    %bb
-    {
-        %aa
-        %bb
-        2**(X-Z)%aa
-        %bb
-         :
-            %aa
-            %bb
-            Z = L+1..X,
-            %aa
-            %bb
-            not counter(1, Z);
-        %aa
-        %bb
-        1, M :
-            excluded(M)
-    }%aa
-    %bb
-     >= %aa
-    %bb
-    Y%aa
-    %bb
-    ,
-    models(Y).
-
- :- bla(1, 2).
-
-#external a.
-
-#const c="Dd".
-
-#minimize {
-    fff
-}.
-
-#maximise {
-    X :
-        ccc(X)
-}.
-
-#include "fail1.lp".
-
-#heuristic heu. [ha, ak]
-
-#defined bla/2.
-
-#project p("s", X).
-
-#theory test {
-    &q/1 : t, body;
-    &r/0 : t, { < }, t, directive
-}.
-
-#edge(a, b). #edge(c, d).
-"#;
-    _fmt_and_cmp_new(source, result);
 }

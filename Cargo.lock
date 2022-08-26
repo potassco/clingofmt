@@ -380,9 +380,9 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-clingo"
-version = "0.0.10"
+version = "0.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11b767d93e3b3e2ca33b6df92f0d22bf62e324e388a18af32ee7aac9ae9565e0"
+checksum = "257bc7d70dc43c6bca8643f7891b217f7f1d9387351d7311bcc648b030338018"
 dependencies = [
  "cc",
  "tree-sitter",

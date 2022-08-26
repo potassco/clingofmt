@@ -78,12 +78,13 @@ fn run() -> Result<()> {
     pass_one(&tree, &source_code, &mut buf, opt.debug)?;
 
     let mut out = std::io::stdout();
-    let buf_str: String = String::from_utf8(buf)?;
+    let buf_str = std::str::from_utf8(&buf)?;
     write!(out, "{buf_str}")?;
     Ok(())
 }
 
 struct State {
+    is_show: bool,
     has_head_like: bool,
     has_if: bool,
     has_body: bool,
@@ -93,10 +94,18 @@ struct State {
     in_theory_atom_definition: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum StatementType {
     Fact,
+    ShowStmt, // show statements
     Other,
+}
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum BlockType {
+    Show, // show statements
+    Fact,
+    Some,
+    No,
 }
 
 fn pass_one(
@@ -105,14 +114,18 @@ fn pass_one(
     out: &mut dyn Write,
     debug: bool,
 ) -> Result<()> {
-    let mut in_fact_block = false;
-    let mut in_block = true;
+    let mut current_block_type = BlockType::Some;
     let mut short_cut = false;
     let mut cursor = tree.walk();
     let has_errors = cursor.node().has_error();
 
     let mut indent_level = 0;
     let mut did_visit_children = false;
+
+    let leave_block = |out: &mut dyn Write, current_block_type: &mut BlockType| {
+        writeln!(out).unwrap();
+        *current_block_type = BlockType::No;
+    };
 
     loop {
         let node = cursor.node();
@@ -149,34 +162,65 @@ fn pass_one(
                 warn!("Unexpected: {text}");
                 did_visit_children = true;
             } else {
-                if node.kind() == "statement" {
-                    let mut buf = Vec::new();
-                    let stmt_type = pass_two(&node, source_code, &mut buf, debug)?;
+                match node.kind() {
+                    "statement" => {
+                        let mut buf = Vec::new();
+                        let stmt_type = pass_two(&node, source_code, &mut buf, debug)?;
 
-                    if !in_block & !in_fact_block {
-                        writeln!(out)?;
-                    }
-                    if in_fact_block {
-                        if stmt_type == StatementType::Fact {
-                            write!(out, " ")?;
-                        } else {
-                            writeln!(out)?;
-                            writeln!(out)?;
+                        match current_block_type {
+                            BlockType::Some => {}
+                            BlockType::Show => {
+                                match stmt_type {
+                                    StatementType::Other => writeln!(out)?,
+                                    StatementType::Fact => writeln!(out)?,
+                                    StatementType::ShowStmt => {}
+                                };
+                            }
+                            BlockType::Fact => {
+                                match stmt_type {
+                                    StatementType::Other => {
+                                        writeln!(out)?;
+                                        writeln!(out)?;
+                                    }
+                                    StatementType::Fact => write!(out, " ")?,
+                                    StatementType::ShowStmt => {
+                                        writeln!(out)?;
+                                        writeln!(out)?;
+                                    }
+                                };
+                            }
+                            BlockType::No => writeln!(out)?,
                         }
-                    }
-                    match stmt_type {
-                        StatementType::Fact => in_fact_block = true,
-                        StatementType::Other => in_fact_block = false,
-                    }
-                    let buf_str = String::from_utf8(buf)?;
-                    write!(out, "{}", buf_str)?;
 
-                    if !in_fact_block {
-                        writeln!(out)?;
+                        let buf_str = std::str::from_utf8(&buf)?;
+                        write!(out, "{}", buf_str)?;
+                        match stmt_type {
+                            StatementType::Other => {
+                                leave_block(out, &mut current_block_type);
+                            }
+                            StatementType::Fact => {
+                                current_block_type = BlockType::Fact;
+                            }
+                            StatementType::ShowStmt => {
+                                writeln!(out)?;
+                                current_block_type = BlockType::Show;
+                            }
+                        };
+                        short_cut = true;
                     }
-
-                    in_block = false;
-                    short_cut = true;
+                    "single_comment" | "multi_comment" => {
+                        match current_block_type {
+                            BlockType::Show => leave_block(out, &mut current_block_type),
+                            BlockType::Fact => {
+                                writeln!(out)?;
+                                leave_block(out, &mut current_block_type);
+                            }
+                            BlockType::No => writeln!(out)?,
+                            _ => {}
+                        };
+                        current_block_type = BlockType::Some;
+                    }
+                    _ => {}
                 }
                 if debug {
                     let indent = "  ".repeat(indent_level);
@@ -209,7 +253,7 @@ fn pass_one(
             // What happens after the element
             match node.kind() {
                 "source_file" => {
-                    if in_fact_block {
+                    if current_block_type == BlockType::Fact {
                         writeln!(out)?;
                     }
                 }
@@ -221,15 +265,7 @@ fn pass_one(
                     let end_byte = node.end_byte();
                     let text = std::str::from_utf8(&source_code[start_byte..end_byte]).unwrap();
 
-                    if in_fact_block {
-                        writeln!(out)?;
-                        writeln!(out)?;
-                    } else if !in_block {
-                        writeln!(out)?;
-                    }
                     writeln!(out, "{}", text.trim_end())?;
-                    in_fact_block = false;
-                    in_block = true;
                 }
                 _ => {}
             }
@@ -259,6 +295,7 @@ fn pass_two(
     let mut flush = false;
     let mut cosmetic_ws = false;
     let mut state = State {
+        is_show: false,
         has_head_like: false,
         has_if: false,
         has_body: false,
@@ -396,9 +433,7 @@ fn pass_two(
             }
 
             match node.kind() {
-                "single_comment" => {
-                    flush = true;
-                }
+                "single_comment" => flush = true,
                 "termvec" | "binaryargvec" => state.in_termvec -= 1,
                 "theory_atom_definition" => {
                     state.in_termvec -= 1;
@@ -423,27 +458,25 @@ fn pass_two(
                     mindent_level -= 1;
                 }
                 "LPAREN" => mindent_level += 1,
-                // Add semantic space
+                // Add semantic whitespace
                 "NOT" | "aggregatefunction" | "theory_identifier" | "EXTERNAL" | "DEFINED"
-                | "CONST" | "SHOW" | "BLOCK" | "INCLUDE" | "PROJECT" | "HEURISTIC" | "THEORY"
+                | "CONST" | "BLOCK" | "INCLUDE" | "PROJECT" | "HEURISTIC" | "THEORY"
                 | "MAXIMIZE" | "MINIMIZE" => write!(out, " ")?,
-                // Add cosmetic space
-                "cmp" | "VBAR" => write!(out, " ")?,
-
-                "SEM" => {
-                    flush = true;
+                "SHOW" => {
+                    write!(out, " ")?;
+                    state.is_show = true;
                 }
+                // Add cosmetic whitespace
+                "cmp" | "VBAR" => write!(out, " ")?,
+                "SEM" =>  flush = true,
                 "COLON" => {
-                    if state.in_theory_atom_definition {
+                    if state.in_theory_atom_definition | state.is_show {
                         write!(out, " ")?;
                     } else {
-                        if state.in_conjunction {
+                        if state.in_conjunction | state.in_optcondition {
                             mindent_level += 1;
+                            flush = true;
                         }
-                        if state.in_optcondition {
-                            mindent_level += 1;
-                        }
-                        flush = true;
                     }
                 }
                 "LBRACE" => {
@@ -455,7 +488,7 @@ fn pass_two(
                     }
                 }
                 "COMMA" => {
-                    if state.in_termvec == 0
+                    if state.in_termvec == 0 && ! state.is_show
                     /*|| buf.len() >= MAX_LENGTH */
                     {
                         flush = true;
@@ -486,6 +519,8 @@ fn pass_two(
     }
     if state.has_head_like & !state.has_body {
         Ok(StatementType::Fact)
+    } else if state.is_show {
+        Ok(StatementType::ShowStmt)
     } else {
         Ok(StatementType::Other)
     }
@@ -771,11 +806,7 @@ excluded(M) :-
 
 % Display literals of prime implicant
 #show select/2.
-
-#show a(A) :
-b(A),
-field(AN).
-
+#show a(A) : b(A), field(AN).
 #show select("root", X).
 
 n(s). bb(x).

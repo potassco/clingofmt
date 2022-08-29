@@ -31,6 +31,64 @@ enum BlockType {
     Some,
     No,
 }
+impl BlockType {
+    fn process_statement(
+        &mut self,
+        stmt_type: StatementType,
+        out: &mut dyn Write,
+        buf: &[u8],
+    ) -> Result<()> {
+        match (&self, stmt_type) {
+            (BlockType::Show, StatementType::Show) => {}
+            (BlockType::Show, _) => writeln!(out)?,
+            (BlockType::Include, StatementType::Include) => {}
+            (BlockType::Include, _) => writeln!(out)?,
+            (BlockType::Fact, StatementType::Fact) => write!(out, " ")?,
+            (BlockType::Fact, _) => {
+                writeln!(out)?;
+                writeln!(out)?;
+            }
+            (BlockType::Some, _) => {}
+            (BlockType::No, _) => writeln!(out)?,
+        }
+
+        let buf_str = std::str::from_utf8(&buf)?;
+        write!(out, "{}", buf_str)?;
+
+        match stmt_type {
+            StatementType::Other => {
+                writeln!(out).unwrap();
+                *self = BlockType::No;
+            }
+            StatementType::Fact => {
+                *self = BlockType::Fact;
+            }
+            StatementType::Show => {
+                writeln!(out)?;
+                *self = BlockType::Show;
+            }
+            StatementType::Include => {
+                writeln!(out)?;
+                *self = BlockType::Include;
+            }
+        }
+        Ok(())
+    }
+
+    fn process_comment(&mut self, out: &mut dyn Write) -> Result<()> {
+        match self {
+            BlockType::Fact => {
+                writeln!(out)?;
+                writeln!(out)?; // leave block
+            }
+            BlockType::Some => {}
+            _ => writeln!(out)?, // leave block
+        };
+        *self = BlockType::Some;
+
+        Ok(())
+    }
+}
 
 pub fn pass_one(
     tree: &tree_sitter::Tree,
@@ -45,11 +103,6 @@ pub fn pass_one(
 
     let mut indent_level = 0;
     let mut did_visit_children = false;
-
-    let leave_block = |out: &mut dyn Write, current_block_type: &mut BlockType| {
-        writeln!(out).unwrap();
-        *current_block_type = BlockType::No;
-    };
 
     loop {
         let node = cursor.node();
@@ -91,63 +144,11 @@ pub fn pass_one(
                         let mut buf = Vec::new();
                         let stmt_type = pass_two(&node, source_code, &mut buf, debug)?;
 
-                        match current_block_type {
-                            BlockType::Some => {}
-                            BlockType::Show => {
-                                match stmt_type {
-                                    StatementType::Show => {}
-                                    _ => writeln!(out)?,
-                                };
-                            }
-                            BlockType::Fact => {
-                                match stmt_type {
-                                    StatementType::Fact => write!(out, " ")?,
-                                    _ => {
-                                        writeln!(out)?;
-                                        writeln!(out)?;
-                                    }
-                                };
-                            }
-                            BlockType::No => writeln!(out)?,
-                            BlockType::Include => {
-                                match stmt_type {
-                                    StatementType::Include => {}
-                                    _ => writeln!(out)?,
-                                };
-                            }
-                        }
-
-                        let buf_str = std::str::from_utf8(&buf)?;
-                        write!(out, "{}", buf_str)?;
-                        match stmt_type {
-                            StatementType::Other => {
-                                leave_block(out, &mut current_block_type);
-                            }
-                            StatementType::Fact => {
-                                current_block_type = BlockType::Fact;
-                            }
-                            StatementType::Show => {
-                                writeln!(out)?;
-                                current_block_type = BlockType::Show;
-                            }
-                            StatementType::Include => {
-                                writeln!(out)?;
-                                current_block_type = BlockType::Include;
-                            }
-                        };
+                        current_block_type.process_statement(stmt_type, out, &buf)?;
                         short_cut = true;
                     }
                     "single_comment" | "multi_comment" => {
-                        match current_block_type {
-                            BlockType::Fact => {
-                                writeln!(out)?;
-                                leave_block(out, &mut current_block_type);
-                            }
-                            BlockType::No => writeln!(out)?,
-                            BlockType::Some => {}
-                            _ => leave_block(out, &mut current_block_type),
-                        };
-                        current_block_type = BlockType::Some;
+                        current_block_type.process_comment(out)?;
                     }
                     _ => {}
                 }

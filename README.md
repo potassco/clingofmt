@@ -1,4 +1,4 @@
-# clingofmt [![Build Status](https://github.com/potassco/clingofmt/workflows/CI%20Test/badge.svg)](https://github.com/potassco/clingofmt)
+# ![CNApy screenshot](clingofmt.png) [![Build Status](https://github.com/potassco/clingofmt/workflows/CI%20Test/badge.svg)](https://github.com/potassco/clingofmt)
 
 A tool that formats your clingo code.
 

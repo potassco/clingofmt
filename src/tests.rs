@@ -10,7 +10,7 @@ fn fmt_and_cmp(source_code: &str, res: &str) {
 
     let tree = parser.parse(&source_code, None).unwrap();
 
-    pass_one(&tree, source_code.as_bytes(), &mut buf, false).unwrap();
+    format_program(&tree, source_code.as_bytes(), &mut buf, false).unwrap();
     let parse_res = std::str::from_utf8(&buf).unwrap();
     assert_eq!(parse_res, res)
 }

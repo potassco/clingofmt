@@ -19,19 +19,37 @@ struct State {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum StatementType {
     Fact,
-    Show,    // show statements
-    Include, // include statements
+    Show,    // show statement
+    Include, // include statement
     Other,
 }
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum BlockType {
-    Show,    // show statements
-    Include, // include statements
-    Fact,
+enum FormatterState {
+    Block(StatementType),
     Some,
     No,
 }
-impl BlockType {
+impl FormatterState {
+    fn new_block(&mut self, out: &mut dyn Write, stmt_type: Option<StatementType>) -> Result<()> {
+        match *self {
+            FormatterState::No => {}
+            FormatterState::Block(StatementType::Other) | FormatterState::Some => {
+                writeln!(out)?; // empty line before new block
+            }
+            _ => {
+                writeln!(out)?; // end the last block
+                writeln!(out)?; // empty line before new block
+            }
+        }
+        match stmt_type {
+            Some(StatementType::Other) => *self = FormatterState::Block(StatementType::Other),
+            Some(StatementType::Fact) => *self = FormatterState::Block(StatementType::Fact),
+            Some(StatementType::Show) => *self = FormatterState::Block(StatementType::Show),
+            Some(StatementType::Include) => *self = FormatterState::Block(StatementType::Include),
+            None => *self = FormatterState::Some,
+        }
+        Ok(())
+    }
     fn process_statement(
         &mut self,
         stmt_type: StatementType,
@@ -39,64 +57,49 @@ impl BlockType {
         buf: &[u8],
     ) -> Result<()> {
         match (&self, stmt_type) {
-            (BlockType::Show, StatementType::Show) => {}
-            (BlockType::Show, _) => writeln!(out)?,
-            (BlockType::Include, StatementType::Include) => {}
-            (BlockType::Include, _) => writeln!(out)?,
-            (BlockType::Fact, StatementType::Fact) => write!(out, " ")?,
-            (BlockType::Fact, _) => {
-                writeln!(out)?;
-                writeln!(out)?;
-            }
-            (BlockType::Some, _) => {}
-            (BlockType::No, _) => writeln!(out)?,
+            (FormatterState::Block(StatementType::Fact), StatementType::Fact) => write!(out, " ")?,
+            (FormatterState::Block(StatementType::Show), StatementType::Show)
+            | (FormatterState::Block(StatementType::Include), StatementType::Include)
+            | (FormatterState::Block(StatementType::Other), StatementType::Other) => writeln!(out)?,
+
+            _ => self.new_block(out, Some(stmt_type))?,
         }
 
-        let buf_str = std::str::from_utf8(&buf)?;
+        let buf_str = std::str::from_utf8(buf)?;
         write!(out, "{}", buf_str)?;
 
-        match stmt_type {
-            StatementType::Other => {
-                writeln!(out).unwrap();
-                *self = BlockType::No;
-            }
-            StatementType::Fact => {
-                *self = BlockType::Fact;
-            }
-            StatementType::Show => {
-                writeln!(out)?;
-                *self = BlockType::Show;
-            }
-            StatementType::Include => {
-                writeln!(out)?;
-                *self = BlockType::Include;
-            }
+        if stmt_type == StatementType::Other {
+            writeln!(out).unwrap(); // add new line after every rule like statement
         }
         Ok(())
     }
 
-    fn process_comment(&mut self, out: &mut dyn Write) -> Result<()> {
+    fn process_comment(&mut self, out: &mut dyn Write, buf: &[u8]) -> Result<()> {
         match self {
-            BlockType::Fact => {
+            FormatterState::No => {}
+            FormatterState::Some => {
                 writeln!(out)?;
-                writeln!(out)?; // leave block
             }
-            BlockType::Some => {}
-            _ => writeln!(out)?, // leave block
+            FormatterState::Block(StatementType::Other) => {
+                writeln!(out)?;
+            }
+            _ => self.new_block(out, None)?,
         };
-        *self = BlockType::Some;
+        let text = std::str::from_utf8(buf).unwrap();
+        write!(out, "{}", text.trim_end())?;
+        *self = FormatterState::Some;
 
         Ok(())
     }
 }
 
-pub fn pass_one(
+pub fn format_program(
     tree: &tree_sitter::Tree,
     source_code: &[u8],
     out: &mut dyn Write,
     debug: bool,
 ) -> Result<()> {
-    let mut current_block_type = BlockType::Some;
+    let mut formatter_state = FormatterState::No;
     let mut short_cut = false;
     let mut cursor = tree.walk();
     let has_errors = cursor.node().has_error();
@@ -142,13 +145,15 @@ pub fn pass_one(
                 match node.kind() {
                     "statement" => {
                         let mut buf = Vec::new();
-                        let stmt_type = pass_two(&node, source_code, &mut buf, debug)?;
+                        let stmt_type = format_statement(&node, source_code, &mut buf, debug)?;
 
-                        current_block_type.process_statement(stmt_type, out, &buf)?;
+                        formatter_state.process_statement(stmt_type, out, &buf)?;
                         short_cut = true;
                     }
                     "single_comment" | "multi_comment" => {
-                        current_block_type.process_comment(out)?;
+                        let start_byte = node.start_byte();
+                        let end_byte = node.end_byte();
+                        formatter_state.process_comment(out, &source_code[start_byte..end_byte])?;
                     }
                     _ => {}
                 }
@@ -183,20 +188,13 @@ pub fn pass_one(
             // What happens after the element
             match node.kind() {
                 "source_file" => {
-                    if current_block_type == BlockType::Fact {
+                    if formatter_state != FormatterState::No
+                        && formatter_state != FormatterState::Block(StatementType::Other)
+                    {
                         writeln!(out)?;
                     }
                 }
-                "statement" => {
-                    short_cut = false;
-                }
-                "single_comment" | "multi_comment" => {
-                    let start_byte = node.start_byte();
-                    let end_byte = node.end_byte();
-                    let text = std::str::from_utf8(&source_code[start_byte..end_byte]).unwrap();
-
-                    writeln!(out, "{}", text.trim_end())?;
-                }
+                "statement" => short_cut = false,
                 _ => {}
             }
             if cursor.goto_next_sibling() {
@@ -216,7 +214,7 @@ pub fn pass_one(
     }
 }
 
-fn pass_two(
+fn format_statement(
     node: &tree_sitter::Node,
     source_code: &[u8],
     out: &mut dyn Write,
@@ -407,11 +405,9 @@ fn pass_two(
                 "COLON" => {
                     if state.in_theory_atom_definition | state.is_show {
                         write!(out, " ")?;
-                    } else {
-                        if state.in_conjunction | state.in_optcondition {
-                            mindent_level += 1;
-                            flush = true;
-                        }
+                    } else if state.in_conjunction | state.in_optcondition {
+                        mindent_level += 1;
+                        flush = true;
                     }
                 }
                 "LBRACE" => {

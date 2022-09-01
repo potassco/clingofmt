@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use clingofmt::pass_one;
+use clingofmt::format_program;
 use log::error;
 use std::fs;
 use std::{
@@ -74,7 +74,7 @@ fn run() -> Result<()> {
     let tree = parser.parse(&source_code, None).unwrap();
 
     let mut buf = Vec::new();
-    pass_one(&tree, &source_code, &mut buf, opt.debug)?;
+    format_program(&tree, &source_code, &mut buf, opt.debug)?;
 
     let mut out = std::io::stdout();
     let buf_str = std::str::from_utf8(&buf)?;

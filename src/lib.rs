@@ -26,9 +26,10 @@ enum StatementType {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum FormatterState {
     Block(StatementType),
-    Some,
+    SomeBlock,
     No,
 }
+use FormatterState::*;
 struct Formatter<'a> {
     out: &'a mut dyn Write,
     state: FormatterState,
@@ -36,8 +37,8 @@ struct Formatter<'a> {
 impl<'a> Formatter<'a> {
     fn new_block(&mut self, stmt_type: Option<StatementType>) -> Result<()> {
         match self.state {
-            FormatterState::No => {}
-            FormatterState::Block(StatementType::Other) | FormatterState::Some => {
+            No => {}
+            Block(StatementType::Other) | SomeBlock => {
                 writeln!(self.out)?; // empty line before new block
             }
             _ => {
@@ -46,43 +47,34 @@ impl<'a> Formatter<'a> {
             }
         }
         match stmt_type {
-            Some(StatementType::Other) => self.state = FormatterState::Block(StatementType::Other),
-            Some(StatementType::Fact) => self.state = FormatterState::Block(StatementType::Fact),
-            Some(StatementType::Show) => self.state = FormatterState::Block(StatementType::Show),
-            Some(StatementType::Include) => {
-                self.state = FormatterState::Block(StatementType::Include)
-            }
-            None => self.state = FormatterState::Some,
+            Some(StatementType::Other) => self.state = Block(StatementType::Other),
+            Some(StatementType::Fact) => self.state = Block(StatementType::Fact),
+            Some(StatementType::Show) => self.state = Block(StatementType::Show),
+            Some(StatementType::Include) => self.state = Block(StatementType::Include),
+            None => self.state = SomeBlock,
         }
         Ok(())
     }
     fn process_comment(&mut self, buf: &[u8]) -> Result<()> {
         match self.state {
-            FormatterState::No => {}
-            FormatterState::Some => {
-                writeln!(self.out)?;
-            }
-            FormatterState::Block(StatementType::Other) => {
+            No => {}
+            SomeBlock | Block(StatementType::Other) => {
                 writeln!(self.out)?;
             }
             _ => self.new_block(None)?,
         };
         let text = std::str::from_utf8(buf).unwrap();
         write!(self.out, "{}", text.trim_end())?;
-        self.state = FormatterState::Some;
+        self.state = SomeBlock;
 
         Ok(())
     }
     fn process_statement(&mut self, stmt_type: StatementType, buf: &[u8]) -> Result<()> {
         match (self.state, stmt_type) {
-            (FormatterState::Block(StatementType::Fact), StatementType::Fact) => {
-                write!(self.out, " ")?
-            }
-            (FormatterState::Block(StatementType::Show), StatementType::Show)
-            | (FormatterState::Block(StatementType::Include), StatementType::Include)
-            | (FormatterState::Block(StatementType::Other), StatementType::Other) => {
-                writeln!(self.out)?
-            }
+            (Block(StatementType::Fact), StatementType::Fact) => write!(self.out, " ")?,
+            (Block(StatementType::Show), StatementType::Show)
+            | (Block(StatementType::Include), StatementType::Include)
+            | (Block(StatementType::Other), StatementType::Other) => writeln!(self.out)?,
 
             _ => self.new_block(Some(stmt_type))?,
         }
@@ -96,9 +88,7 @@ impl<'a> Formatter<'a> {
         Ok(())
     }
     fn finish_program(&mut self) -> Result<()> {
-        if self.state != FormatterState::No
-            && self.state != FormatterState::Block(StatementType::Other)
-        {
+        if self.state != No && self.state != Block(StatementType::Other) {
             writeln!(self.out)?;
         }
         Ok(())

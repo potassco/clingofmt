@@ -29,66 +29,78 @@ enum FormatterState {
     Some,
     No,
 }
-impl FormatterState {
-    fn new_block(&mut self, out: &mut dyn Write, stmt_type: Option<StatementType>) -> Result<()> {
-        match *self {
+struct Formatter<'a> {
+    out: &'a mut dyn Write,
+    state: FormatterState,
+}
+impl<'a> Formatter<'a> {
+    fn new_block(&mut self, stmt_type: Option<StatementType>) -> Result<()> {
+        match self.state {
             FormatterState::No => {}
             FormatterState::Block(StatementType::Other) | FormatterState::Some => {
-                writeln!(out)?; // empty line before new block
+                writeln!(self.out)?; // empty line before new block
             }
             _ => {
-                writeln!(out)?; // end the last block
-                writeln!(out)?; // empty line before new block
+                writeln!(self.out)?; // end the last block
+                writeln!(self.out)?; // empty line before new block
             }
         }
         match stmt_type {
-            Some(StatementType::Other) => *self = FormatterState::Block(StatementType::Other),
-            Some(StatementType::Fact) => *self = FormatterState::Block(StatementType::Fact),
-            Some(StatementType::Show) => *self = FormatterState::Block(StatementType::Show),
-            Some(StatementType::Include) => *self = FormatterState::Block(StatementType::Include),
-            None => *self = FormatterState::Some,
+            Some(StatementType::Other) => self.state = FormatterState::Block(StatementType::Other),
+            Some(StatementType::Fact) => self.state = FormatterState::Block(StatementType::Fact),
+            Some(StatementType::Show) => self.state = FormatterState::Block(StatementType::Show),
+            Some(StatementType::Include) => {
+                self.state = FormatterState::Block(StatementType::Include)
+            }
+            None => self.state = FormatterState::Some,
         }
         Ok(())
     }
-    fn process_statement(
-        &mut self,
-        stmt_type: StatementType,
-        out: &mut dyn Write,
-        buf: &[u8],
-    ) -> Result<()> {
-        match (&self, stmt_type) {
-            (FormatterState::Block(StatementType::Fact), StatementType::Fact) => write!(out, " ")?,
+    fn process_comment(&mut self, buf: &[u8]) -> Result<()> {
+        match self.state {
+            FormatterState::No => {}
+            FormatterState::Some => {
+                writeln!(self.out)?;
+            }
+            FormatterState::Block(StatementType::Other) => {
+                writeln!(self.out)?;
+            }
+            _ => self.new_block(None)?,
+        };
+        let text = std::str::from_utf8(buf).unwrap();
+        write!(self.out, "{}", text.trim_end())?;
+        self.state = FormatterState::Some;
+
+        Ok(())
+    }
+    fn process_statement(&mut self, stmt_type: StatementType, buf: &[u8]) -> Result<()> {
+        match (self.state, stmt_type) {
+            (FormatterState::Block(StatementType::Fact), StatementType::Fact) => {
+                write!(self.out, " ")?
+            }
             (FormatterState::Block(StatementType::Show), StatementType::Show)
             | (FormatterState::Block(StatementType::Include), StatementType::Include)
-            | (FormatterState::Block(StatementType::Other), StatementType::Other) => writeln!(out)?,
+            | (FormatterState::Block(StatementType::Other), StatementType::Other) => {
+                writeln!(self.out)?
+            }
 
-            _ => self.new_block(out, Some(stmt_type))?,
+            _ => self.new_block(Some(stmt_type))?,
         }
 
         let buf_str = std::str::from_utf8(buf)?;
-        write!(out, "{}", buf_str)?;
+        write!(self.out, "{}", buf_str)?;
 
         if stmt_type == StatementType::Other {
-            writeln!(out).unwrap(); // add new line after every rule like statement
+            writeln!(self.out).unwrap(); // add new line after every rule like statement
         }
         Ok(())
     }
-
-    fn process_comment(&mut self, out: &mut dyn Write, buf: &[u8]) -> Result<()> {
-        match self {
-            FormatterState::No => {}
-            FormatterState::Some => {
-                writeln!(out)?;
-            }
-            FormatterState::Block(StatementType::Other) => {
-                writeln!(out)?;
-            }
-            _ => self.new_block(out, None)?,
-        };
-        let text = std::str::from_utf8(buf).unwrap();
-        write!(out, "{}", text.trim_end())?;
-        *self = FormatterState::Some;
-
+    fn finish_program(&mut self) -> Result<()> {
+        if self.state != FormatterState::No
+            && self.state != FormatterState::Block(StatementType::Other)
+        {
+            writeln!(self.out)?;
+        }
         Ok(())
     }
 }
@@ -99,7 +111,10 @@ pub fn format_program(
     out: &mut dyn Write,
     debug: bool,
 ) -> Result<()> {
-    let mut formatter_state = FormatterState::No;
+    let mut formatter = Formatter {
+        out,
+        state: FormatterState::No,
+    };
     let mut short_cut = false;
     let mut cursor = tree.walk();
     let has_errors = cursor.node().has_error();
@@ -147,13 +162,13 @@ pub fn format_program(
                         let mut buf = Vec::new();
                         let stmt_type = format_statement(&node, source_code, &mut buf, debug)?;
 
-                        formatter_state.process_statement(stmt_type, out, &buf)?;
+                        formatter.process_statement(stmt_type, &buf)?;
                         short_cut = true;
                     }
                     "single_comment" | "multi_comment" => {
                         let start_byte = node.start_byte();
                         let end_byte = node.end_byte();
-                        formatter_state.process_comment(out, &source_code[start_byte..end_byte])?;
+                        formatter.process_comment(&source_code[start_byte..end_byte])?;
                     }
                     _ => {}
                 }
@@ -188,11 +203,7 @@ pub fn format_program(
             // What happens after the element
             match node.kind() {
                 "source_file" => {
-                    if formatter_state != FormatterState::No
-                        && formatter_state != FormatterState::Block(StatementType::Other)
-                    {
-                        writeln!(out)?;
-                    }
+                    formatter.finish_program()?;
                 }
                 "statement" => short_cut = false,
                 _ => {}

@@ -13,7 +13,7 @@ use std::{
 #[clap(version, author)]
 struct Opt {
     /// Input file in clingo format
-    #[clap(name = "FILE", parse(from_os_str))]
+    #[clap(name = "FILE")]
     file: PathBuf,
 
     /// Enable debug output
@@ -49,11 +49,7 @@ impl<'a> io::BufRead for Reader<'a> {
 }
 
 fn main() {
-    stderrlog::new()
-        .module(module_path!())
-        .verbosity(3)
-        .init()
-        .unwrap();
+    env_logger::builder().format_timestamp(None).init();
     if let Err(err) = run() {
         error!("{:?}", err);
         std::process::exit(1);

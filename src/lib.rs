@@ -1,8 +1,12 @@
 use anyhow::Result;
 use log::{debug, warn};
+use serde_derive::{Deserialize, Serialize};
 use std::io::Write;
 
-const MAX_LENGTH: usize = 10;
+#[derive(Serialize, Deserialize, Default)]
+pub struct Config {
+    line_length: usize,
+}
 
 #[cfg(test)]
 mod tests;
@@ -102,6 +106,7 @@ pub fn format_program(
     source_code: &[u8],
     out: &mut dyn Write,
     debug: bool,
+    config: &Config,
 ) -> Result<()> {
     let mut formatter = Formatter {
         out,
@@ -152,7 +157,8 @@ pub fn format_program(
                 match node.kind() {
                     "statement" => {
                         let mut buf = Vec::new();
-                        let stmt_type = format_statement(&node, source_code, &mut buf, debug)?;
+                        let stmt_type =
+                            format_statement(&node, source_code, &mut buf, debug, config)?;
 
                         formatter.process_statement(stmt_type, &buf)?;
                         short_cut = true;
@@ -222,6 +228,7 @@ fn format_statement(
     source_code: &[u8],
     out: &mut dyn Write,
     debug: bool,
+    config: &Config,
 ) -> Result<StatementType> {
     let mut buf: Vec<u8> = vec![];
     let mut flush = false;
@@ -346,7 +353,7 @@ fn format_statement(
             // What happens after the element
             if flush || hard_flush {
                 let buf_str = std::str::from_utf8(&buf)?;
-                if buf_str.len() >= MAX_LENGTH || hard_flush {
+                if buf_str.len() >= config.line_length || hard_flush {
                     write!(out, "{}", buf_str)?;
                     buf.clear();
                     writeln!(out)?;
@@ -435,9 +442,7 @@ fn format_statement(
                     }
                 }
                 "COMMA" => {
-                    if state.in_termvec == 0 && !state.is_show
-                    /*|| buf.len() >= MAX_LENGTH */
-                    {
+                    if state.in_termvec == 0 && !state.is_show {
                         flush = true;
                     } else {
                         write!(buf, " ")?;

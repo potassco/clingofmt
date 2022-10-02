@@ -4,13 +4,14 @@ use super::*;
 fn fmt_and_cmp(source_code: &str, res: &str) {
     let mut buf = Vec::new();
     let mut parser = tree_sitter::Parser::new();
+    let cfg = Config::default();
     parser
         .set_language(tree_sitter_clingo::language())
         .expect("Error loading clingo grammar");
 
     let tree = parser.parse(&source_code, None).unwrap();
 
-    format_program(&tree, source_code.as_bytes(), &mut buf, false).unwrap();
+    format_program(&tree, source_code.as_bytes(), &mut buf, false, &cfg).unwrap();
     let parse_res = std::str::from_utf8(&buf).unwrap();
     assert_eq!(parse_res, res)
 }

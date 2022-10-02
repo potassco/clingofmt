@@ -358,13 +358,11 @@ fn format_statement(
                     buf.clear();
                     writeln!(out)?;
                     let indent = "    ".repeat(mindent_level);
-                    write!(out, "{indent}")?;
+                    write!(buf, "{indent}")?;
                     flush = false;
                     hard_flush = false;
                 } else {
-                    write!(out, "{}", buf_str)?;
-                    buf.clear();
-                    write!(out, " ")?;
+                    write!(buf, " ")?;
                     flush = false;
                 }
             }

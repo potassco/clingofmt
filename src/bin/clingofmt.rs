@@ -49,7 +49,10 @@ impl<'a> io::BufRead for Reader<'a> {
 }
 
 fn main() {
-    env_logger::builder().format_timestamp(None).init();
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Trace)
+        .format_timestamp(None)
+        .init();
     if let Err(err) = run() {
         error!("{:?}", err);
         std::process::exit(1);

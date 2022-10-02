@@ -1,6 +1,12 @@
 use anyhow::Result;
 use log::{debug, warn};
+use serde_derive::{Deserialize, Serialize};
 use std::io::Write;
+
+#[derive(Serialize, Deserialize, Default)]
+pub struct Config {
+    line_length: usize,
+}
 
 #[cfg(test)]
 mod tests;
@@ -100,6 +106,7 @@ pub fn format_program(
     source_code: &[u8],
     out: &mut dyn Write,
     debug: bool,
+    config: &Config,
 ) -> Result<()> {
     let mut formatter = Formatter {
         out,
@@ -150,7 +157,8 @@ pub fn format_program(
                 match node.kind() {
                     "statement" => {
                         let mut buf = Vec::new();
-                        let stmt_type = format_statement(&node, source_code, &mut buf, debug)?;
+                        let stmt_type =
+                            format_statement(&node, source_code, &mut buf, debug, config)?;
 
                         formatter.process_statement(stmt_type, &buf)?;
                         short_cut = true;
@@ -220,8 +228,11 @@ fn format_statement(
     source_code: &[u8],
     out: &mut dyn Write,
     debug: bool,
+    config: &Config,
 ) -> Result<StatementType> {
+    let mut buf: Vec<u8> = vec![];
     let mut flush = false;
+    let mut hard_flush = false;
     let mut cosmetic_ws = false;
     let mut state = State {
         is_show: false,
@@ -340,14 +351,23 @@ fn format_statement(
             }
         } else {
             // What happens after the element
-            if flush {
-                writeln!(out)?;
-                let indent = "    ".repeat(mindent_level);
-                write!(out, "{indent}")?;
-                flush = false
+            if flush || hard_flush {
+                let buf_str = std::str::from_utf8(&buf)?;
+                if buf_str.len() >= config.line_length || hard_flush {
+                    write!(out, "{}", buf_str)?;
+                    buf.clear();
+                    writeln!(out)?;
+                    let indent = "    ".repeat(mindent_level);
+                    write!(buf, "{indent}")?;
+                    flush = false;
+                    hard_flush = false;
+                } else {
+                    write!(buf, " ")?;
+                    flush = false;
+                }
             }
             if cosmetic_ws {
-                write!(out, " ")?;
+                write!(buf, " ")?;
                 cosmetic_ws = false
             }
             // Write token to buffer
@@ -356,14 +376,14 @@ fn format_statement(
                 let end_byte = node.end_byte();
                 let text = std::str::from_utf8(&source_code[start_byte..end_byte]).unwrap();
                 if node.kind() == "single_comment" {
-                    write!(out, "{}", text.trim_end())?;
+                    write!(buf, "{}", text.trim_end())?;
                 } else {
-                    write!(out, "{}", text)?;
+                    write!(buf, "{}", text)?;
                 }
             }
 
             match node.kind() {
-                "single_comment" => flush = true,
+                "single_comment" => hard_flush = true,
                 "termvec" | "binaryargvec" => state.in_termvec -= 1,
                 "theory_atom_definition" => {
                     state.in_termvec -= 1;
@@ -391,21 +411,21 @@ fn format_statement(
                 // Add semantic whitespace
                 "NOT" | "aggregatefunction" | "theory_identifier" | "EXTERNAL" | "DEFINED"
                 | "CONST" | "BLOCK" | "PROJECT" | "HEURISTIC" | "THEORY" | "MAXIMIZE"
-                | "MINIMIZE" => write!(out, " ")?,
+                | "MINIMIZE" => write!(buf, " ")?,
                 "INCLUDE" => {
-                    write!(out, " ")?;
+                    write!(buf, " ")?;
                     state.is_include = true;
                 }
                 "SHOW" => {
-                    write!(out, " ")?;
+                    write!(buf, " ")?;
                     state.is_show = true;
                 }
                 // Add cosmetic whitespace
-                "cmp" | "VBAR" => write!(out, " ")?,
+                "cmp" | "VBAR" => write!(buf, " ")?,
                 "SEM" => flush = true,
                 "COLON" => {
                     if state.in_theory_atom_definition | state.is_show {
-                        write!(out, " ")?;
+                        write!(buf, " ")?;
                     } else if state.in_conjunction | state.in_optcondition {
                         mindent_level += 1;
                         flush = true;
@@ -413,28 +433,26 @@ fn format_statement(
                 }
                 "LBRACE" => {
                     if state.in_theory_atom_definition {
-                        write!(out, " ")?;
+                        write!(buf, " ")?;
                     } else {
                         mindent_level += 1;
                         flush = true;
                     }
                 }
                 "COMMA" => {
-                    if state.in_termvec == 0 && !state.is_show
-                    /*|| buf.len() >= MAX_LENGTH */
-                    {
+                    if state.in_termvec == 0 && !state.is_show {
                         flush = true;
                     } else {
-                        write!(out, " ")?;
+                        write!(buf, " ")?;
                     }
                 }
                 "IF" => {
                     state.has_if = true;
                     mindent_level += 1; // decrease after bodydot
                     if !state.has_head_like {
-                        write!(out, " ")?;
+                        write!(buf, " ")?;
                     } else {
-                        flush = true;
+                        hard_flush = true;
                     }
                 }
                 _ => {}
@@ -449,6 +467,8 @@ fn format_statement(
             }
         }
     }
+    let buf_str = std::str::from_utf8(&buf)?;
+    write!(out, "{}", buf_str)?;
     if state.has_head_like & !state.has_body {
         Ok(StatementType::Fact)
     } else if state.is_show {

@@ -452,7 +452,7 @@ fn format_statement(
                     if !state.has_head_like {
                         write!(buf, " ")?;
                     } else {
-                        flush = true;
+                        hard_flush = true;
                     }
                 }
                 _ => {}

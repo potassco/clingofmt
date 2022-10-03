@@ -1,12 +1,9 @@
 use anyhow::Result;
 use log::{debug, warn};
-use serde_derive::{Deserialize, Serialize};
 use std::io::Write;
 
-#[derive(Serialize, Deserialize, Default)]
-pub struct Config {
-    line_length: usize,
-}
+const SOFT_FLUSH_LIMIT :usize = 60;
+
 
 #[cfg(test)]
 mod tests;
@@ -106,7 +103,6 @@ pub fn format_program(
     source_code: &[u8],
     out: &mut dyn Write,
     debug: bool,
-    config: &Config,
 ) -> Result<()> {
     let mut formatter = Formatter {
         out,
@@ -158,7 +154,7 @@ pub fn format_program(
                     "statement" => {
                         let mut buf = Vec::new();
                         let stmt_type =
-                            format_statement(&node, source_code, &mut buf, debug, config)?;
+                            format_statement(&node, source_code, &mut buf, debug)?;
 
                         formatter.process_statement(stmt_type, &buf)?;
                         short_cut = true;
@@ -228,11 +224,10 @@ fn format_statement(
     source_code: &[u8],
     out: &mut dyn Write,
     debug: bool,
-    config: &Config,
 ) -> Result<StatementType> {
     let mut buf: Vec<u8> = vec![];
+    let mut soft_flush = false;
     let mut flush = false;
-    let mut hard_flush = false;
     let mut cosmetic_ws = false;
     let mut state = State {
         is_show: false,
@@ -351,19 +346,18 @@ fn format_statement(
             }
         } else {
             // What happens after the element
-            if flush || hard_flush {
+            if soft_flush || flush {
                 let buf_str = std::str::from_utf8(&buf)?;
-                if buf_str.len() >= config.line_length || hard_flush {
+                if buf_str.len() >= SOFT_FLUSH_LIMIT || flush {
                     write!(out, "{}", buf_str)?;
                     buf.clear();
                     writeln!(out)?;
                     let indent = "    ".repeat(mindent_level);
                     write!(buf, "{indent}")?;
+                    soft_flush = false;
                     flush = false;
-                    hard_flush = false;
                 } else {
-                    write!(buf, " ")?;
-                    flush = false;
+                    soft_flush = false;
                 }
             }
             if cosmetic_ws {
@@ -383,7 +377,7 @@ fn format_statement(
             }
 
             match node.kind() {
-                "single_comment" => hard_flush = true,
+                "single_comment" => flush = true,
                 "termvec" | "binaryargvec" => state.in_termvec -= 1,
                 "theory_atom_definition" => {
                     state.in_termvec -= 1;
@@ -445,6 +439,7 @@ fn format_statement(
                     } else {
                         write!(buf, " ")?;
                     }
+                    soft_flush = true;
                 }
                 "IF" => {
                     state.has_if = true;
@@ -452,7 +447,7 @@ fn format_statement(
                     if !state.has_head_like {
                         write!(buf, " ")?;
                     } else {
-                        hard_flush = true;
+                        flush = true;
                     }
                 }
                 _ => {}

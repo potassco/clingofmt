@@ -349,7 +349,9 @@ excluded(M) :-
 
 n(s). bb(x).
 
-output(@fmt(("The @fmt() function is flexible enough to take multi-line ", "strings containing many placeholders: {} and ", "{} and {} outputs"), (X, Y, Z))) :-
+output(@fmt(("The @fmt() function is flexible enough to take multi-line ", 
+            "strings containing many placeholders: {} and ", 
+            "{} and {} outputs"), (X, Y, Z))) :-
     num(X),
     string(Y),
     constant(Z).

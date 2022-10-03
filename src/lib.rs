@@ -2,8 +2,7 @@ use anyhow::Result;
 use log::{debug, warn};
 use std::io::Write;
 
-const SOFT_FLUSH_LIMIT :usize = 60;
-
+const SOFT_FLUSH_LIMIT: usize = 60;
 
 #[cfg(test)]
 mod tests;
@@ -221,6 +220,12 @@ pub fn format_program(
             match node.kind() {
                 "source_file" => {
                     formatter.finish_program()?;
+                    if skip_fmt {
+                        let unformated_text =
+                            std::str::from_utf8(&source_code[start_unformatted..node.end_byte()])
+                                .unwrap();
+                        write!(formatter.out, "{}", unformated_text)?;
+                    }
                 }
                 "statement" => short_cut = false,
                 _ => {}

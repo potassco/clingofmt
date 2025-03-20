@@ -37,7 +37,7 @@ struct Formatter<'a> {
     out: &'a mut dyn Write,
     state: FormatterState,
 }
-impl<'a> Formatter<'a> {
+impl Formatter<'_> {
     fn new_block(&mut self, stmt_type: Option<StatementType>) -> Result<()> {
         match self.state {
             No => {}

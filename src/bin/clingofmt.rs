@@ -25,7 +25,7 @@ pub enum Reader<'a> {
     File(io::BufReader<fs::File>),
     Stdin(io::StdinLock<'a>),
 }
-impl<'a> io::Read for Reader<'a> {
+impl io::Read for Reader<'_> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
             Self::File(reader) => reader.read(buf),
@@ -33,7 +33,7 @@ impl<'a> io::Read for Reader<'a> {
         }
     }
 }
-impl<'a> io::BufRead for Reader<'a> {
+impl io::BufRead for Reader<'_> {
     fn fill_buf(&mut self) -> io::Result<&[u8]> {
         match self {
             Self::File(reader) => reader.fill_buf(),

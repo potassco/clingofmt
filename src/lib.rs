@@ -3,13 +3,19 @@ use log::{debug, warn};
 use serde_derive::{Deserialize, Serialize};
 use std::io::Write;
 
+/// Configuration options for the formatter.
 #[derive(Serialize, Deserialize)]
 pub struct Config {
+    /// Whether to insert a line break after the head of a rule.
     break_after_head: bool,
+    /// Whether to insert a line break after each body atom in a rule.
     break_after_body_atom: bool,
+    /// Whether to insert a line break after a colon in specific contexts.
     break_after_colon: bool,
+    /// The maximum number of characters before a soft flush occurs.
     soft_flush_limit: usize,
 }
+
 impl Default for Config {
     fn default() -> Self {
         Self {

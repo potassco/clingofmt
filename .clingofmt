@@ -1,0 +1,6 @@
+break_after_head = true
+break_after_body_atom = false
+break_after_colon = true
+soft_flush_limit = 60
+align_continuation_after_colon = true
+indent_width = 4
